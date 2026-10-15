@@ -1,20 +1,8 @@
 // Главное окно: ожидание карточки и счётчики выдачи за сегодня.
-// Разметка лежит в data/window.ui и редактируется в Cambalache,
-// здесь только логика: виджеты из шаблона и обработчики сигналов.
+// Разметка — в main_window_ui.vala (MainWindowUi),
+// здесь только логика: обновление виджетов и обработчики сигналов.
 
-[GtkTemplate (ui = "/org/example/Stolovka/window.ui")]
-public class MainWindow : Adw.ApplicationWindow {
-    [GtkChild]
-    private unowned Adw.ToastOverlay toast_overlay;
-    [GtkChild]
-    private unowned Adw.WindowTitle window_title;
-    [GtkChild]
-    private unowned Gtk.Label breakfast_count;
-    [GtkChild]
-    private unowned Gtk.Label lunch_count;
-    [GtkChild]
-    private unowned Gtk.Entry card_entry;
-
+public class MainWindow : MainWindowUi {
     // Приложили карточку (настоящую или в тестовом режиме)
     public signal void card_presented (uint64 uid);
 
@@ -47,8 +35,7 @@ public class MainWindow : Adw.ApplicationWindow {
         window_title.subtitle = now.format ("%A, %e %B · %H:%M");
     }
 
-    [GtkCallback]
-    private void on_simulate_card () {
+    protected override void on_simulate_card () {
         // try_parse пропускает пустую строку (как 0) и знак минус, поэтому
         // сначала проверяем, что первым символом идёт цифра
         var text = card_entry.text.strip ();
