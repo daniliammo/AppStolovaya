@@ -20,7 +20,7 @@ executable('hello-gtk4',
     dependency('glib-2.0'),
     dependency('gobject-2.0'),
     dependency('gtk4'),
-    dependency('libadwaita-1', version: '>= 1.4'),
+    dependency('libadwaita-1', version: '>= 1.5'),
   ],
   install: true,
 )
