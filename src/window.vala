@@ -4,14 +4,17 @@
 
 public class MainWindow : MainWindowUi {
     private Database database;
+    private Settings settings;
+    private StudentDialog? student_dialog;  // открытое окно ученика
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить смену дня
 
     // Приложили карточку (настоящую или в тестовом режиме)
     public signal void card_presented (int64 uid);
 
-    public MainWindow (Adw.Application app, Database database) {
+    public MainWindow (Adw.Application app, Database database, Settings settings) {
         Object (application: app);
         this.database = database;
+        this.settings = settings;
 
         update_clock ();
         Timeout.add_seconds (1, () => {
@@ -19,24 +22,60 @@ public class MainWindow : MainWindowUi {
             return Source.CONTINUE;
         });
 
-        card_presented.connect (show_student);
+        card_presented.connect ((uid) => show_student (uid));
     }
 
-    // Пока нет окна ученика, показываем ученика и его отметки уведомлением
-    private void show_student (int64 uid) {
+    // Окно ученика. forced — приём пищи, выбранный в тестовом режиме;
+    // null — по настройкам: по времени или обе кнопки.
+    private void show_student (int64 uid, MealType? forced = null) {
+        Student? student;
+        StudentDialog dialog;
         try {
-            var student = database.find_student_by_card (uid);
+            student = database.find_student_by_card (uid);
             if (student == null) {
                 show_toast (@"Карточка $uid не зарегистрирована");
                 return;
             }
-            var day = database.student_day (student, new DateTime.now_local ());
-            show_toast ("%s, %s · завтрак: %s · обед: %s".printf (
-                student.full_name, student.group_name,
-                short_time (day.breakfast_at), short_time (day.lunch_at)));
+
+            MealType? only = forced;
+            var hint = "";
+            if (forced != null) {
+                hint = "Выбрано в тестовом режиме";
+            } else if (settings.auto_meal) {
+                only = settings.meal_at (new DateTime.now_local ());
+                hint = "Определено по времени: обед с %02d:%02d".printf (settings.lunch_from / 60, settings.lunch_from % 60);
+            }
+            dialog = new StudentDialog (database, student, only, hint);
         } catch (DatabaseError e) {
             show_database_error (e);
+            return;
         }
+
+        // Приложили следующую карточку — предыдущее окно закрывается
+        student_dialog?.force_close ();
+        student_dialog = dialog;
+
+        dialog.meal_recorded.connect ((type) => {
+            update_counts ();
+            show_toast ("%s: %s".printf (type == MealType.BREAKFAST ? "Завтрак" : "Обед", student.full_name));
+        });
+        dialog.database_failed.connect (show_database_error);
+        dialog.closed.connect (on_student_dialog_closed);
+        dialog.present (this);
+    }
+
+    // Отправитель приходит параметром: лямбда с dialog внутри создала бы
+    // цикл ссылок «окно → обработчик → окно», и окно никогда не освобождалось бы
+    private void on_student_dialog_closed (Adw.Dialog dialog) {
+        if (student_dialog == dialog) {
+            student_dialog = null;
+        }
+    }
+
+    public void show_settings () {
+        var dialog = new SettingsDialog (settings);
+        dialog.database_failed.connect (show_database_error);
+        dialog.present (this);
     }
 
     // Счётчики за сегодня. Вызывать после списания и при смене дня.
@@ -57,11 +96,6 @@ public class MainWindow : MainWindowUi {
     private void show_database_error (DatabaseError e) {
         critical ("База данных: %s", e.message);
         show_toast ("Ошибка базы данных: " + e.message);
-    }
-
-    // 'HH:MM:SS' → 'HH:MM', нет отметки → «—»
-    private static string short_time (string? time) {
-        return time == null ? "—" : time.substring (0, 5);
     }
 
     private void update_clock () {
@@ -86,6 +120,18 @@ public class MainWindow : MainWindowUi {
             return;
         }
         card_entry.text = "";
-        card_presented (uid);
+
+        // Тестовый режим: приём пищи можно выбрать, не дожидаясь нужного времени
+        switch (meal_choice.selected) {
+        case 1:
+            show_student (uid, MealType.BREAKFAST);
+            break;
+        case 2:
+            show_student (uid, MealType.LUNCH);
+            break;
+        default:
+            show_student (uid);
+            break;
+        }
     }
 }

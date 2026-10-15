@@ -7,6 +7,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Label breakfast_count;
     protected Gtk.Label lunch_count;
     protected Gtk.Entry card_entry;
+    // Тестовый режим: какой приём пищи показать (0 — по настройкам, 1 — завтрак, 2 — обед)
+    protected Gtk.DropDown meal_choice;
 
     // Enter в поле номера карточки или кнопка «Приложить карточку»
     protected abstract void on_simulate_card ();
@@ -34,6 +36,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         var main_section = new Menu ();
         main_section.append ("Ученики", "app.students");
         main_section.append ("Обновить Excel-файл", "app.export");
+        main_section.append ("Настройки", "app.preferences");
 
         var about_section = new Menu ();
         about_section.append ("О программе", "app.about");
@@ -130,6 +133,10 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         };
         card_entry.activate.connect (on_simulate_card);
 
+        meal_choice = new Gtk.DropDown.from_strings ({ "По настройкам", "Завтрак", "Обед" }) {
+            tooltip_text = "Какой приём пищи показать при прикладывании"
+        };
+
         var button = new Gtk.Button.with_label ("Приложить карточку");
         button.add_css_class ("suggested-action");
         button.clicked.connect (on_simulate_card);
@@ -143,6 +150,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         };
         bar.append (label);
         bar.append (card_entry);
+        bar.append (meal_choice);
         bar.append (button);
         return bar;
     }

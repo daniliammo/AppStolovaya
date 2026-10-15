@@ -3,6 +3,7 @@
 
 public class HelloApp : Adw.Application {
     private Database? database;
+    private Settings? settings;
     private string? database_error;
     private ExcelExporter? exporter;
     private bool demo_data = false;
@@ -41,6 +42,7 @@ public class HelloApp : Adw.Application {
         var path = Config.DATABASE_PATH;
         try {
             database = new Database (path);
+            settings = new Settings (database);
             if (demo_data) {
                 add_demo_students ();
             }
@@ -58,6 +60,14 @@ public class HelloApp : Adw.Application {
             run_export (Database.school_year_of (new DateTime.now_local ()));
         });
         add_action (export);
+
+        var preferences = new SimpleAction ("preferences", null);
+        preferences.activate.connect (() => {
+            activate ();
+            ((MainWindow) active_window).show_settings ();
+        });
+        add_action (preferences);
+        set_accels_for_action ("app.preferences", { "<Control>comma" });
 
         // Выгрузка в полночь: проверяем дату каждые 30 секунд
         today = Database.format_date (new DateTime.now_local ());
@@ -84,7 +94,7 @@ public class HelloApp : Adw.Application {
             return;
         }
         var first_start = active_window == null;
-        var window = active_window ?? new MainWindow (this, database);
+        var window = active_window ?? new MainWindow (this, database, settings);
         window.present ();
 
         // При запуске догоняем выгрузку, если программа была закрыта
