@@ -15,6 +15,7 @@ add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', languag
 
 conf = configuration_data()
 conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
+conf.set_quoted('SETUP_SCRIPT', meson.project_source_root() / 'data' / 'setup-system.sh')
 config_vala = configure_file(
   input: 'src/config.vala.in',
   output: 'config.vala',
@@ -35,6 +36,7 @@ executable('hello-gtk4',
   'src/settings_dialog.vala',
   'src/history_dialog_ui.vala',
   'src/history_dialog.vala',
+  'src/system_setup.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,

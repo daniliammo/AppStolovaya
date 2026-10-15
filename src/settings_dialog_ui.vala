@@ -5,9 +5,14 @@ public abstract class SettingsDialogUi : Adw.PreferencesDialog {
     protected Adw.SwitchRow auto_meal_row;
     protected Gtk.SpinButton lunch_hour;
     protected Gtk.SpinButton lunch_minute;
+    protected Adw.ActionRow reader_row;   // подключён ли считыватель
+    protected Adw.ActionRow access_row;   // есть ли у программы доступ к нему
+    protected Gtk.Button setup_button;
+    protected Adw.Spinner setup_spinner;
 
     protected abstract void on_auto_meal_changed ();
     protected abstract void on_lunch_time_changed ();
+    protected abstract void on_setup_clicked ();
 
     construct {
         title = "Настройки";
@@ -46,7 +51,42 @@ public abstract class SettingsDialogUi : Adw.PreferencesDialog {
 
         var page = new Adw.PreferencesPage ();
         page.add (group);
+        page.add (build_system_group ());
         add (page);
+    }
+
+    // Считыватель карт: состояние и кнопка настройки системы
+    private Adw.PreferencesGroup build_system_group () {
+        reader_row = new Adw.ActionRow () {
+            title = "Считыватель карт"
+        };
+        access_row = new Adw.ActionRow () {
+            title = "Доступ к считывателю"
+        };
+
+        setup_spinner = new Adw.Spinner () {
+            visible = false
+        };
+        setup_button = new Gtk.Button.with_label ("Настроить") {
+            valign = Gtk.Align.CENTER
+        };
+        setup_button.add_css_class ("suggested-action");
+        setup_button.clicked.connect (on_setup_clicked);
+
+        var setup_row = new Adw.ActionRow () {
+            title = "Настроить систему",
+            subtitle = "Доступ к считывателю без пароля. Пароль администратора спросят один раз. Сеть и интернет не затрагиваются"
+        };
+        setup_row.add_suffix (setup_spinner);
+        setup_row.add_suffix (setup_button);
+
+        var group = new Adw.PreferencesGroup () {
+            title = "Система"
+        };
+        group.add (reader_row);
+        group.add (access_row);
+        group.add (setup_row);
+        return group;
     }
 
     // Поле часов или минут: показывает число с ведущим нулём (09:05)
