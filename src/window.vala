@@ -5,16 +5,18 @@
 public class MainWindow : MainWindowUi {
     private Database database;
     private Settings settings;
+    private CardReader reader;
     private StudentDialog? student_dialog;  // открытое окно ученика
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить смену дня
 
     // Приложили карточку (настоящую или в тестовом режиме)
     public signal void card_presented (int64 uid);
 
-    public MainWindow (Adw.Application app, Database database, Settings settings) {
+    public MainWindow (Adw.Application app, Database database, Settings settings, CardReader reader) {
         Object (application: app);
         this.database = database;
         this.settings = settings;
+        this.reader = reader;
 
         update_clock ();
         Timeout.add_seconds (1, () => {
@@ -23,6 +25,40 @@ public class MainWindow : MainWindowUi {
         });
 
         card_presented.connect ((uid) => show_student (uid));
+        reader.card_read.connect ((card) => card_presented (card.uid));
+        reader.notify["state"].connect (update_reader_status);
+        update_reader_status ();
+    }
+
+    // Зелёная галочка — сканер подключён, красный крестик — нет
+    private void update_reader_status () {
+        foreach (var css in new string[] { "success", "warning", "error" }) {
+            reader_icon.remove_css_class (css);
+            reader_label.remove_css_class (css);
+        }
+
+        string icon, text, css;
+        switch (reader.state) {
+        case ReaderState.CONNECTED:
+            icon = "object-select-symbolic";
+            text = "Сканер подключён";
+            css = "success";
+            break;
+        case ReaderState.NO_ACCESS:
+            icon = "dialog-warning-symbolic";
+            text = "Сканер подключён, но нет доступа: Настройки → «Настроить»";
+            css = "warning";
+            break;
+        default:
+            icon = "window-close-symbolic";
+            text = "Сканер не подключён";
+            css = "error";
+            break;
+        }
+        reader_icon.icon_name = icon;
+        reader_label.label = text;
+        reader_icon.add_css_class (css);
+        reader_label.add_css_class (css);
     }
 
     // Окно ученика. forced — приём пищи, выбранный в тестовом режиме;

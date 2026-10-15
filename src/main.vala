@@ -4,6 +4,7 @@
 public class HelloApp : Adw.Application {
     private Database? database;
     private Settings? settings;
+    private CardReader reader = new CardReader ();
     private string? database_error;
     private ExcelExporter? exporter;
     private bool demo_data = false;
@@ -52,6 +53,8 @@ public class HelloApp : Adw.Application {
             critical ("База данных %s: %s", path, e.message);
             return;
         }
+
+        reader.start ();
 
         exporter = new ExcelExporter (database, ExcelExporter.default_directory ());
 
@@ -102,7 +105,7 @@ public class HelloApp : Adw.Application {
             return;
         }
         var first_start = active_window == null;
-        var window = active_window ?? new MainWindow (this, database, settings);
+        var window = active_window ?? new MainWindow (this, database, settings, reader);
         window.present ();
 
         // При запуске догоняем выгрузку, если программа была закрыта

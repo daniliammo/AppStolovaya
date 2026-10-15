@@ -9,6 +9,9 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Entry card_entry;
     // Тестовый режим: какой приём пищи показать (0 — по настройкам, 1 — завтрак, 2 — обед)
     protected Gtk.DropDown meal_choice;
+    // Состояние сканера: красный крестик или зелёная галочка и надпись
+    protected Gtk.Image reader_icon;
+    protected Gtk.Label reader_label;
 
     // Enter в поле номера карточки или кнопка «Приложить карточку»
     protected abstract void on_simulate_card ();
@@ -97,7 +100,26 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         box.append (title);
         box.append (hint);
         box.append (counters);
+        box.append (build_reader_status ());
         return box;
+    }
+
+    // «✓ Сканер подключён» / «✗ Сканер не подключён»; цвет задаёт логика
+    // классами success / error / warning
+    private Gtk.Widget build_reader_status () {
+        reader_icon = new Gtk.Image () {
+            pixel_size = 24
+        };
+        reader_label = new Gtk.Label (null);
+        reader_label.add_css_class ("title-4");
+
+        var status = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
+            halign = Gtk.Align.CENTER,
+            margin_top = 24
+        };
+        status.append (reader_icon);
+        status.append (reader_label);
+        return status;
     }
 
     // Плашка: крупное число и подпись под ним

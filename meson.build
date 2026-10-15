@@ -9,6 +9,9 @@ glib_deps = [
 ]
 sqlite_dep = dependency('sqlite3')
 xlsxwriter_dep = dependency('xlsxwriter')
+gio_dep = dependency('gio-2.0')
+# Posix.open, termios — для последовательного порта считывателя
+posix_dep = meson.get_compiler('vala').find_library('posix')
 
 # Свои .vapi для библиотек без привязок к Vala (xlsxwriter)
 add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', language: 'vala')
@@ -37,15 +40,26 @@ executable('hello-gtk4',
   'src/history_dialog_ui.vala',
   'src/history_dialog.vala',
   'src/system_setup.vala',
+  'src/card_reader.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,
     xlsxwriter_dep,
+    gio_dep,
+    posix_dep,
     dependency('gtk4'),
     dependency('libadwaita-1', version: '>= 1.5'),
   ],
   install: true,
 )
+
+test('card-reader', executable('test-card-reader',
+  config_vala,
+  'src/system_setup.vala',
+  'src/card_reader.vala',
+  'tests/test_card_reader.vala',
+  dependencies: [glib_deps, gio_dep, posix_dep],
+))
 
 test('database', executable('test-database',
   'src/database.vala',
