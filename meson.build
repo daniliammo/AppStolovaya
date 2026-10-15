@@ -50,3 +50,11 @@ test('excel-export', executable('test-excel-export',
   'tests/test_excel_export.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep],
 ))
+
+# Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]
+executable('demo-excel',
+  'src/database.vala',
+  'src/excel_export.vala',
+  'tools/demo_excel.vala',
+  dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep],
+)
