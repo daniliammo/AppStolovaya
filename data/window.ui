@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Created with Cambalache 1.0 -->
+<interface>
+  <!-- interface-name window.ui -->
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.4"/>
+  <template class="MainWindow" parent="AdwApplicationWindow">
+    <property name="content">
+      <object class="AdwToolbarView">
+        <property name="content">
+          <object class="GtkBox">
+            <property name="margin-bottom">24</property>
+            <property name="margin-end">24</property>
+            <property name="margin-start">24</property>
+            <property name="margin-top">24</property>
+            <property name="orientation">vertical</property>
+            <property name="spacing">12</property>
+            <property name="valign">center</property>
+            <child>
+              <object class="GtkLabel" id="label">
+                <property name="label">Привет, GTK 4!</property>
+                <style>
+                  <class name="title-1"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkEntry" id="entry">
+                <property name="placeholder-text">Введите имя и нажмите Enter</property>
+                <signal name="activate" handler="on_entry_activate"/>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="button">
+                <property name="label">Нажато: 0 раз</property>
+                <signal name="clicked" handler="on_button_clicked"/>
+                <style>
+                  <class name="suggested-action"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </property>
+        <child type="top">
+          <object class="AdwHeaderBar"/>
+        </child>
+      </object>
+    </property>
+    <property name="default-height">240</property>
+    <property name="default-width">360</property>
+    <property name="title">Столовая</property>
+  </template>
+</interface>
