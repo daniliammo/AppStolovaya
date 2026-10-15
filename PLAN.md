@@ -64,19 +64,20 @@
 ```sql
 CREATE TABLE students (
     id          INTEGER PRIMARY KEY,
-    card_uid    INTEGER NOT NULL UNIQUE,   -- id NFC-карточки
-    full_name   TEXT    NOT NULL,          -- ФИО
-    group_name  TEXT    NOT NULL           -- группа
+    card_uid    INTEGER UNIQUE CHECK (card_uid >= 0),  -- id NFC-карточки, 0..int64.max; NULL — ещё не привязана
+    full_name   TEXT    NOT NULL CHECK (full_name <> ''),  -- ФИО
+    group_name  TEXT    NOT NULL                       -- группа
 );
 
 CREATE TABLE meals (
     id          INTEGER PRIMARY KEY,
-    student_id  INTEGER NOT NULL REFERENCES students(id),
+    student_id  INTEGER NOT NULL REFERENCES students (id),
     meal_date   TEXT    NOT NULL,          -- дата прикладывания, 'YYYY-MM-DD'
     meal_type   TEXT    NOT NULL CHECK (meal_type IN ('breakfast', 'lunch')),
     issued_at   TEXT    NOT NULL,          -- время прикладывания, 'HH:MM:SS'
     UNIQUE (student_id, meal_date, meal_type)  -- не больше одного завтрака/обеда в день
 );
+CREATE INDEX meals_by_date ON meals (meal_date);
 
 CREATE TABLE exports (
     export_date TEXT PRIMARY KEY,          -- по какой день включительно выгружено
@@ -84,6 +85,8 @@ CREATE TABLE exports (
     done_at     TEXT NOT NULL
 );
 ```
+
+Реализовано в `src/database.vala` (миграции через `PRAGMA user_version`), тесты — `tests/test_database.vala` (`meson test -C build`). Номер карточки может быть пустым: при импорте списка карточку можно привязать позже. Удалить ученика, у которого есть записи в журнале, база не даст (внешний ключ), чтобы не потерять историю.
 
 Ограничение `UNIQUE` в `meals` защищает от двойного списания даже при двойном нажатии.
 
@@ -139,11 +142,11 @@ CREATE TABLE exports (
 
 ### Этап 1. Ядро без NFC
 - [ ] Переименовать каркас: id приложения, имя бинарника, классы (`HelloApp` → `CanteenApp` и т.д.)
-- [ ] Подключить SQLite, создавать схему при первом запуске (`~/.local/share/<app-id>/canteen.db`)
+- [x] Подключить SQLite, создавать схему при первом запуске (`~/.local/share/<app-id>/canteen.db`)
 - [ ] `CardReader` + `SimulatedReader`
 - [ ] Окно ожидания и окно ученика, списание завтрака и обеда
-- [ ] Защита от повторного списания
-- [ ] Тестовые данные: несколько учеников с карточками 1, 2, 3
+- [x] Защита от повторного списания (в базе; кнопки — вместе с окном ученика)
+- [x] Тестовые данные: несколько учеников с карточками 1, 2, 3 (`hello-gtk4 --demo-data`)
 
 **Результат:** вводишь id, видишь ученика, списываешь питание.
 
