@@ -33,6 +33,8 @@ executable('hello-gtk4',
   'src/student_dialog.vala',
   'src/settings_dialog_ui.vala',
   'src/settings_dialog.vala',
+  'src/history_dialog_ui.vala',
+  'src/history_dialog.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,

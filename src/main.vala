@@ -61,6 +61,14 @@ public class HelloApp : Adw.Application {
         });
         add_action (export);
 
+        var history = new SimpleAction ("history", null);
+        history.activate.connect (() => {
+            activate ();
+            ((MainWindow) active_window).show_history ();
+        });
+        add_action (history);
+        set_accels_for_action ("app.history", { "<Control>h" });
+
         var preferences = new SimpleAction ("preferences", null);
         preferences.activate.connect (() => {
             activate ();

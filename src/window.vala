@@ -72,6 +72,18 @@ public class MainWindow : MainWindowUi {
         }
     }
 
+    public void show_history () {
+        HistoryDialog dialog;
+        try {
+            dialog = new HistoryDialog (database);
+        } catch (DatabaseError e) {
+            show_database_error (e);
+            return;
+        }
+        dialog.database_failed.connect (show_database_error);
+        dialog.present (this);
+    }
+
     public void show_settings () {
         var dialog = new SettingsDialog (settings);
         dialog.database_failed.connect (show_database_error);
