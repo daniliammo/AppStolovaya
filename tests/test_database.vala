@@ -102,6 +102,8 @@ void test_day_records () throws Error {
     assert_cmpint (days.length, CompareOperator.EQ, 2);
     assert_cmpstr (days[0], CompareOperator.EQ, "2026-10-14");
     assert_cmpstr (days[1], CompareOperator.EQ, "2026-10-15");
+    assert_cmpint (db.meal_days (2026).length, CompareOperator.EQ, 2);
+    assert_cmpint (db.meal_days (2025).length, CompareOperator.EQ, 0);
 }
 
 void test_exports () throws Error {

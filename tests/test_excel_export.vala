@@ -1,0 +1,89 @@
+// Тесты выгрузки в Excel. Запуск: meson test -C build
+// Даты в прошлом: записи «из будущего» всегда считались бы изменёнными.
+
+string tmp_dir;
+
+DateTime at (int year, int day, int hour) {
+    return new DateTime.local (year, 10, day, hour, 0, 0);
+}
+
+Database sample_database () throws Error {
+    var db = new Database (":memory:");
+    var a = db.add_student ("Алексеев Алексей", "5А", 1);
+    var b = db.add_student ("Борисов Борис", "5Б", 2);
+    db.record_meal (a, MealType.BREAKFAST, at (2024, 14, 8));
+    db.record_meal (a, MealType.LUNCH, at (2025, 14, 12));
+    db.record_meal (b, MealType.LUNCH, at (2025, 15, 12));
+    return db;
+}
+
+// .xlsx — это zip-архив, он начинается с «PK»
+void assert_xlsx (string path) throws Error {
+    uint8[] data;
+    FileUtils.get_data (path, out data);
+    assert_true (data.length > 100);
+    assert_true (data[0] == 'P' && data[1] == 'K');
+    assert_false (FileUtils.test (path + ".tmp", FileTest.EXISTS));
+}
+
+void test_export_changed () throws Error {
+    var db = sample_database ();
+    var exporter = new ExcelExporter (db, Path.build_filename (tmp_dir, "Столовая"));
+
+    // Первая выгрузка: файл на каждый год с записями
+    var files = exporter.export_changed ();
+    assert_cmpint (files.length, CompareOperator.EQ, 2);
+    assert_true (files[0].has_suffix ("/Столовая/столовая_2024.xlsx"));
+    assert_true (files[1].has_suffix ("/Столовая/столовая_2025.xlsx"));
+    assert_xlsx (files[0]);
+    assert_xlsx (files[1]);
+
+    // Ничего не изменилось — ничего не пишется
+    assert_cmpint (exporter.export_changed ().length, CompareOperator.EQ, 0);
+
+    // Год можно пересобрать принудительно, даже без записей
+    files = exporter.export_changed (2023);
+    assert_cmpint (files.length, CompareOperator.EQ, 1);
+    assert_xlsx (exporter.file_for_year (2023));
+}
+
+void test_export_year_bad_directory () throws Error {
+    var db = sample_database ();
+    var exporter = new ExcelExporter (db, "/proc/нет/Столовая");
+    try {
+        exporter.export_year (2025);
+        assert_not_reached ();
+    } catch (ExportError e) {
+        assert_true (e is ExportError.FAILED);
+    }
+}
+
+int main (string[] args) {
+    Test.init (ref args);
+    try {
+        tmp_dir = DirUtils.make_tmp ("stolovaya-export-XXXXXX");
+    } catch (FileError e) {
+        error ("%s", e.message);
+    }
+    Test.add_func ("/excel/export-changed", () => wrap (test_export_changed));
+    Test.add_func ("/excel/bad-directory", () => wrap (test_export_year_bad_directory));
+    var result = Test.run ();
+
+    var dir = Path.build_filename (tmp_dir, "Столовая");
+    foreach (var year in new int[] { 2023, 2024, 2025 }) {
+        FileUtils.remove (Path.build_filename (dir, "столовая_%d.xlsx".printf (year)));
+    }
+    DirUtils.remove (dir);
+    DirUtils.remove (tmp_dir);
+    return result;
+}
+
+delegate void TestBody () throws Error;
+
+void wrap (TestBody body) {
+    try {
+        body ();
+    } catch (Error e) {
+        error ("%s", e.message);
+    }
+}

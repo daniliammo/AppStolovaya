@@ -199,9 +199,15 @@ public class Database {
         return result;
     }
 
-    // Дни, в которые была выдача ('YYYY-MM-DD', по возрастанию): листы выгрузки
-    public GenericArray<string> meal_days () throws DatabaseError {
-        var stmt = prepare ("SELECT DISTINCT meal_date FROM meals ORDER BY meal_date");
+    // Дни, в которые была выдача ('YYYY-MM-DD', по возрастанию): листы выгрузки.
+    // year = 0 — за все годы.
+    public GenericArray<string> meal_days (int year = 0) throws DatabaseError {
+        var stmt = prepare ("""
+            SELECT DISTINCT meal_date FROM meals
+            WHERE ?1 = 0 OR meal_date LIKE ?1 || '-%'
+            ORDER BY meal_date
+        """);
+        stmt.bind_int (1, year);
         var result = new GenericArray<string> ();
         while (step_row (stmt)) {
             result.add (stmt.column_text (0));
@@ -216,6 +222,21 @@ public class Database {
         var stmt = prepare ("SELECT max(export_date) FROM exports");
         step_row (stmt);
         return nullable_text (stmt, 0);
+    }
+
+    // Годы, в которых после последней выгрузки появились новые записи
+    // (если выгрузок не было — все годы с записями). Их файлы нужно пересобрать.
+    public int[] changed_years () throws DatabaseError {
+        var stmt = prepare ("""
+            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER) FROM meals
+            WHERE meal_date || ' ' || issued_at >= coalesce ((SELECT max (done_at) FROM exports), '')
+            ORDER BY 1
+        """);
+        int[] result = {};
+        while (step_row (stmt)) {
+            result += stmt.column_int (0);
+        }
+        return result;
     }
 
     public void mark_exported (DateTime day, string file_path, DateTime done_at) throws DatabaseError {
