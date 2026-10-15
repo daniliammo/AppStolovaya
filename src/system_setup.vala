@@ -1,6 +1,6 @@
 // Настройка системы под считыватель карт: проверка состояния и запуск
-// data/setup-system.sh от root через pkexec (GNOME сам спросит пароль).
-// Что именно меняется в системе — см. комментарий в начале скрипта.
+// stolovaya-setup (tools/setup_system.vala) от root через pkexec (GNOME сам спросит пароль).
+// Что именно меняется в системе — см. комментарий в начале tools/setup_system.vala.
 
 public errordomain SetupError {
     CANCELLED,  // окно пароля закрыли или пароль не подошёл
@@ -8,7 +8,7 @@ public errordomain SetupError {
 }
 
 namespace SystemSetup {
-    // Правило udev, которое ставит скрипт
+    // Правило udev, которое ставит stolovaya-setup
     public const string RULES_FILE = "/etc/udev/rules.d/60-stolovaya-reader.rules";
     // Постоянное имя считывателя из этого правила
     public const string READER_LINK = "/dev/stolovaya-reader";
@@ -50,10 +50,10 @@ namespace SystemSetup {
         }
     }
 
-    // Запустить скрипт настройки от root. Возвращает его вывод.
+    // Запустить программу настройки от root. Возвращает его вывод.
     public async string run () throws Error {
         var process = new Subprocess.newv (
-            { "pkexec", Config.SETUP_SCRIPT },
+            { "pkexec", Config.SETUP_PROGRAM },
             SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_MERGE);
         string output;
         yield process.communicate_utf8_async (null, null, out output, null);
@@ -70,7 +70,7 @@ namespace SystemSetup {
             // Коды pkexec: окно закрыто, пароль неверный или нет прав администратора
             throw new SetupError.CANCELLED ("Настройка отменена: нужен пароль администратора");
         default:
-            throw new SetupError.FAILED ("%s", output != "" ? output : "Скрипт настройки завершился с ошибкой");
+            throw new SetupError.FAILED ("%s", output != "" ? output : "Настройка завершилась с ошибкой");
         }
     }
 }

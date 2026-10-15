@@ -2,6 +2,6 @@
 namespace Config {
     // База данных лежит в корне репозитория
     public const string DATABASE_PATH = @DATABASE_PATH@;
-    // Скрипт настройки системы (запускается через pkexec)
-    public const string SETUP_SCRIPT = @SETUP_SCRIPT@;
+    // Программа настройки системы (запускается через pkexec)
+    public const string SETUP_PROGRAM = @SETUP_PROGRAM@;
 }

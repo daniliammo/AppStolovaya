@@ -18,7 +18,7 @@ add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', languag
 
 conf = configuration_data()
 conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
-conf.set_quoted('SETUP_SCRIPT', meson.project_source_root() / 'data' / 'setup-system.sh')
+conf.set_quoted('SETUP_PROGRAM', meson.project_build_root() / 'stolovaya-setup')
 config_vala = configure_file(
   input: 'src/config.vala.in',
   output: 'config.vala',
@@ -80,6 +80,12 @@ test('settings', executable('test-settings',
   'tests/test_settings.vala',
   dependencies: [glib_deps, sqlite_dep],
 ))
+
+# Настройка системы под считыватель, запускается программой через pkexec
+executable('stolovaya-setup',
+  'tools/setup_system.vala',
+  dependencies: [glib_deps, posix_dep],
+)
 
 # Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]
 executable('demo-excel',
