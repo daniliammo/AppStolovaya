@@ -6,7 +6,7 @@ DateTime at (int day, int hour, int minute) {
 
 void test_schema () throws Error {
     var db = new Database (":memory:");
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 1);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 2);
 }
 
 void test_students () throws Error {
@@ -129,6 +129,14 @@ void test_school_years () throws Error {
     assert_cmpint (years[1], CompareOperator.EQ, 2024);
 }
 
+void test_settings () throws Error {
+    var db = new Database (":memory:");
+    assert_null (db.get_setting ("auto_meal"));
+    db.set_setting ("auto_meal", "false");
+    db.set_setting ("auto_meal", "true");  // повторная запись заменяет значение
+    assert_cmpstr (db.get_setting ("auto_meal"), CompareOperator.EQ, "true");
+}
+
 void test_exports () throws Error {
     var db = new Database (":memory:");
     assert_null (db.last_export_date ());
@@ -147,7 +155,7 @@ void test_reopen_file () throws Error {
     db = null;  // закрыть
 
     db = new Database (path);  // миграция не должна повториться
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 1);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 2);
     assert_nonnull (db.find_student_by_card (7));
     db = null;
 
@@ -167,6 +175,7 @@ int main (string[] args) {
     Test.add_func ("/database/record-meal-unknown-student", () => wrap (test_record_meal_unknown_student));
     Test.add_func ("/database/day-records", () => wrap (test_day_records));
     Test.add_func ("/database/school-years", () => wrap (test_school_years));
+    Test.add_func ("/database/settings", () => wrap (test_settings));
     Test.add_func ("/database/exports", () => wrap (test_exports));
     Test.add_func ("/database/reopen-file", () => wrap (test_reopen_file));
     return Test.run ();

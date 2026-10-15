@@ -26,6 +26,7 @@ executable('hello-gtk4',
   config_vala,
   'src/database.vala',
   'src/excel_export.vala',
+  'src/settings.vala',
   'src/main_window_ui.vala',
   'src/window.vala',
   dependencies: [
@@ -49,6 +50,13 @@ test('excel-export', executable('test-excel-export',
   'src/excel_export.vala',
   'tests/test_excel_export.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep],
+))
+
+test('settings', executable('test-settings',
+  'src/database.vala',
+  'src/settings.vala',
+  'tests/test_settings.vala',
+  dependencies: [glib_deps, sqlite_dep],
 ))
 
 # Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]

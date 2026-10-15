@@ -66,6 +66,13 @@ public class Database {
             file_path   TEXT NOT NULL,
             done_at     TEXT NOT NULL
         );
+        """,
+        // 2: настройки программы (ключ — значение)
+        """
+        CREATE TABLE settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         """
     };
 
@@ -250,6 +257,25 @@ public class Database {
         stmt.bind_text (1, format_date (day));
         stmt.bind_text (2, file_path);
         stmt.bind_text (3, done_at.format ("%Y-%m-%d %H:%M:%S"));
+        step_done (stmt);
+    }
+
+    // --- Настройки ---
+
+    // Значение настройки или null, если она ещё не задавалась
+    public string? get_setting (string key) throws DatabaseError {
+        var stmt = prepare ("SELECT value FROM settings WHERE key = ?");
+        stmt.bind_text (1, key);
+        return step_row (stmt) ? stmt.column_text (0) : null;
+    }
+
+    public void set_setting (string key, string value) throws DatabaseError {
+        var stmt = prepare ("""
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE SET value = excluded.value
+        """);
+        stmt.bind_text (1, key);
+        stmt.bind_text (2, value);
         step_done (stmt);
     }
 
