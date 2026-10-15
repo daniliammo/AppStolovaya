@@ -7,7 +7,9 @@ public class HelloApp : Adw.Application {
     private CardReader reader = new CardReader ();
     private string? database_error;
     private ExcelExporter? exporter;
+#if DEBUG
     private bool demo_data = false;
+#endif
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить полночь
 
     public HelloApp () {
@@ -18,14 +20,18 @@ public class HelloApp : Adw.Application {
             register_session: true
         );
 
+#if DEBUG
         add_main_option ("demo-data", 0, OptionFlags.NONE, OptionArg.NONE,
             "Добавить тестовых учеников с карточками 1, 2, 3", null);
+#endif
     }
 
+#if DEBUG
     protected override int handle_local_options (VariantDict options) {
         demo_data = options.contains ("demo-data");
         return -1;  // продолжить обычный запуск
     }
+#endif
 
     protected override void startup () {
         base.startup ();
@@ -44,9 +50,11 @@ public class HelloApp : Adw.Application {
         try {
             database = new Database (path);
             settings = new Settings (database);
+#if DEBUG
             if (demo_data) {
                 add_demo_students ();
             }
+#endif
         } catch (DatabaseError e) {
             database = null;
             database_error = e.message;
@@ -192,6 +200,7 @@ public class HelloApp : Adw.Application {
         dialog.present (window);
     }
 
+#if DEBUG
     private void add_demo_students () throws DatabaseError {
         string[,] students = {
             { "Иванов Иван Иванович", "5А" },
@@ -205,6 +214,7 @@ public class HelloApp : Adw.Application {
             }
         }
     }
+#endif
 
     private void show_about () {
         var dialog = new Adw.AboutDialog () {

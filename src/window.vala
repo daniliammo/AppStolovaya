@@ -158,6 +158,7 @@ public class MainWindow : MainWindowUi {
         }
     }
 
+#if DEBUG
     protected override void on_simulate_card () {
         // try_parse пропускает пустую строку (как 0) и знак минус, поэтому
         // сначала проверяем, что первым символом идёт цифра
@@ -182,4 +183,5 @@ public class MainWindow : MainWindowUi {
             break;
         }
     }
+#endif
 }

@@ -1,4 +1,5 @@
 /build/
+/build-release/
 canteen.db
 canteen.db-wal
 canteen.db-shm

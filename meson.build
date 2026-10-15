@@ -13,6 +13,12 @@ gio_dep = dependency('gio-2.0')
 # Posix.open, termios — для последовательного порта считывателя
 posix_dep = meson.get_compiler('vala').find_library('posix')
 
+# Тестовые части программы (ручной ввод карточки, --demo-data) — только
+# в отладочной сборке: в коде они под #if DEBUG
+if get_option('debug')
+  add_project_arguments('-D', 'DEBUG', language: 'vala')
+endif
+
 # Свои .vapi для библиотек без привязок к Vala (xlsxwriter)
 add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', language: 'vala')
 

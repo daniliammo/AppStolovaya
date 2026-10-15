@@ -6,15 +6,19 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Adw.WindowTitle window_title;
     protected Gtk.Label breakfast_count;
     protected Gtk.Label lunch_count;
+#if DEBUG
     protected Gtk.Entry card_entry;
     // Тестовый режим: какой приём пищи показать (0 — по настройкам, 1 — завтрак, 2 — обед)
     protected Gtk.DropDown meal_choice;
+#endif
     // Состояние сканера: красный крестик или зелёная галочка и надпись
     protected Gtk.Image reader_icon;
     protected Gtk.Label reader_label;
 
+#if DEBUG
     // Enter в поле номера карточки или кнопка «Приложить карточку»
     protected abstract void on_simulate_card ();
+#endif
 
     construct {
         title = "Столовая";
@@ -25,7 +29,9 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             content = build_waiting_screen ()
         };
         toolbar.add_top_bar (build_header_bar ());
+#if DEBUG
         toolbar.add_bottom_bar (build_simulation_bar ());
+#endif
 
         toast_overlay = new Adw.ToastOverlay () {
             child = toolbar
@@ -144,6 +150,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         return card;
     }
 
+#if DEBUG
     // Панель тестового режима: номер карточки вводится вручную вместо NFC
     private Gtk.Widget build_simulation_bar () {
         var label = new Gtk.Label ("Тестовый режим:");
@@ -177,4 +184,5 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         bar.append (button);
         return bar;
     }
+#endif
 }
