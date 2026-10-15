@@ -102,8 +102,31 @@ void test_day_records () throws Error {
     assert_cmpint (days.length, CompareOperator.EQ, 2);
     assert_cmpstr (days[0], CompareOperator.EQ, "2026-10-14");
     assert_cmpstr (days[1], CompareOperator.EQ, "2026-10-15");
-    assert_cmpint (db.meal_days (2026).length, CompareOperator.EQ, 2);
+    assert_cmpint (db.meal_days (2026).length, CompareOperator.EQ, 2);  // учебный 2026–2027
     assert_cmpint (db.meal_days (2025).length, CompareOperator.EQ, 0);
+}
+
+void test_school_years () throws Error {
+    // Учебный год по году начала: сентябрь–июнь, лето — к закончившемуся году
+    assert_cmpint (Database.school_year_of (new DateTime.local (2026, 9, 1, 0, 0, 0)), CompareOperator.EQ, 2026);
+    assert_cmpint (Database.school_year_of (new DateTime.local (2026, 12, 31, 0, 0, 0)), CompareOperator.EQ, 2026);
+    assert_cmpint (Database.school_year_of (new DateTime.local (2027, 6, 30, 0, 0, 0)), CompareOperator.EQ, 2026);
+    assert_cmpint (Database.school_year_of (new DateTime.local (2027, 7, 15, 0, 0, 0)), CompareOperator.EQ, 2026);
+    assert_cmpint (Database.school_year_of (new DateTime.local (2026, 8, 31, 0, 0, 0)), CompareOperator.EQ, 2025);
+
+    var db = new Database (":memory:");
+    var id = db.add_student ("Иванов Иван", "5А", 1);
+    db.record_meal (id, MealType.LUNCH, new DateTime.local (2024, 6, 30, 12, 0, 0));  // 2023–2024
+    db.record_meal (id, MealType.LUNCH, new DateTime.local (2024, 8, 20, 12, 0, 0));  // лето → 2023–2024
+    db.record_meal (id, MealType.LUNCH, new DateTime.local (2024, 9, 1, 12, 0, 0));   // 2024–2025
+    db.record_meal (id, MealType.LUNCH, new DateTime.local (2025, 5, 25, 12, 0, 0));  // 2024–2025
+
+    assert_cmpint (db.meal_days (2023).length, CompareOperator.EQ, 2);
+    assert_cmpint (db.meal_days (2024).length, CompareOperator.EQ, 2);
+    var years = db.changed_school_years ();
+    assert_cmpint (years.length, CompareOperator.EQ, 2);
+    assert_cmpint (years[0], CompareOperator.EQ, 2023);
+    assert_cmpint (years[1], CompareOperator.EQ, 2024);
 }
 
 void test_exports () throws Error {
@@ -143,6 +166,7 @@ int main (string[] args) {
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));
     Test.add_func ("/database/record-meal-unknown-student", () => wrap (test_record_meal_unknown_student));
     Test.add_func ("/database/day-records", () => wrap (test_day_records));
+    Test.add_func ("/database/school-years", () => wrap (test_school_years));
     Test.add_func ("/database/exports", () => wrap (test_exports));
     Test.add_func ("/database/reopen-file", () => wrap (test_reopen_file));
     return Test.run ();

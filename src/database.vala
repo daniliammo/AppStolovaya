@@ -200,14 +200,14 @@ public class Database {
     }
 
     // Дни, в которые была выдача ('YYYY-MM-DD', по возрастанию): листы выгрузки.
-    // year = 0 — за все годы.
-    public GenericArray<string> meal_days (int year = 0) throws DatabaseError {
+    // school_year — учебный год по году начала (2026 — это 2026–2027), 0 — все дни.
+    public GenericArray<string> meal_days (int school_year = 0) throws DatabaseError {
         var stmt = prepare ("""
             SELECT DISTINCT meal_date FROM meals
-            WHERE ?1 = 0 OR meal_date LIKE ?1 || '-%'
+            WHERE ?1 = 0 OR meal_date BETWEEN ?1 || '-09-01' AND (?1 + 1) || '-08-31'
             ORDER BY meal_date
         """);
-        stmt.bind_int (1, year);
+        stmt.bind_int (1, school_year);
         var result = new GenericArray<string> ();
         while (step_row (stmt)) {
             result.add (stmt.column_text (0));
@@ -224,11 +224,14 @@ public class Database {
         return nullable_text (stmt, 0);
     }
 
-    // Годы, в которых после последней выгрузки появились новые записи
-    // (если выгрузок не было — все годы с записями). Их файлы нужно пересобрать.
-    public int[] changed_years () throws DatabaseError {
+    // Учебные годы (по году начала), в которых после последней выгрузки появились
+    // новые записи (если выгрузок не было — все). Их файлы нужно пересобрать.
+    // Формула та же, что в school_year_of (): январь–август — год начала на 1 меньше.
+    public int[] changed_school_years () throws DatabaseError {
         var stmt = prepare ("""
-            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER) FROM meals
+            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
+                          - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
+            FROM meals
             WHERE meal_date || ' ' || issued_at >= coalesce ((SELECT max (done_at) FROM exports), '')
             ORDER BY 1
         """);
@@ -251,6 +254,12 @@ public class Database {
     }
 
     // --- Внутреннее ---
+
+    // Учебный год, к которому относится день, по году начала: сентябрь 2026 —
+    // июнь 2027 это 2026. Июль и август (каникулы) относятся к закончившемуся году.
+    public static int school_year_of (DateTime day) {
+        return day.get_month () >= 9 ? day.get_year () : day.get_year () - 1;
+    }
 
     public static string format_date (DateTime day) {
         return day.format ("%Y-%m-%d");

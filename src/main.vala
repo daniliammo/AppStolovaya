@@ -55,7 +55,7 @@ public class HelloApp : Adw.Application {
 
         var export = new SimpleAction ("export", null);
         export.activate.connect (() => {
-            run_export (new DateTime.now_local ().get_year ());
+            run_export (Database.school_year_of (new DateTime.now_local ()));
         });
         add_action (export);
 
@@ -102,12 +102,12 @@ public class HelloApp : Adw.Application {
         base.shutdown ();
     }
 
-    // Пересобрать файлы лет с новыми записями (и with_year в любом случае)
+    // Пересобрать файлы учебных лет с новыми записями (и with_school_year в любом случае)
     // и сообщить об этом. Ничего не изменилось — ничего не пишем и не сообщаем.
-    private void run_export (int with_year = 0) {
+    private void run_export (int with_school_year = 0) {
         GenericArray<string> files;
         try {
-            files = exporter.export_changed (with_year);
+            files = exporter.export_changed (with_school_year);
         } catch (Error e) {
             critical ("Выгрузка в Excel: %s", e.message);
             send_desktop_notification ("Не удалось сохранить Excel-файл", e.message);

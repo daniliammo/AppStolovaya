@@ -1,5 +1,6 @@
-// Выгрузка журнала выдачи в Excel: один файл на календарный год
-// (столовая_2026.xlsx), в нём лист «Итого» и по листу на каждый день выдачи.
+// Выгрузка журнала выдачи в Excel: один файл на учебный год, с 1 сентября
+// по 30 июня (столовая_2026-2027.xlsx), в нём лист «Итого» и по листу
+// на каждый день выдачи. Учебный год обозначается годом начала: 2026 — это 2026–2027.
 //
 // libxlsxwriter не умеет дописывать в существующий файл, поэтому файл года
 // каждый раз собирается заново из базы: сначала во временный файл, затем
@@ -27,37 +28,37 @@ public class ExcelExporter {
         return Path.build_filename (documents, "Столовая");
     }
 
-    public string file_for_year (int year) {
-        return Path.build_filename (directory, "столовая_%d.xlsx".printf (year));
+    public string file_for_school_year (int school_year) {
+        return Path.build_filename (directory, "столовая_%d-%d.xlsx".printf (school_year, school_year + 1));
     }
 
-    // Пересобрать файлы лет, где после прошлой выгрузки были новые записи,
-    // и (если with_year != 0) файл этого года в любом случае.
+    // Пересобрать файлы учебных лет, где после прошлой выгрузки были новые
+    // записи, и (если with_school_year != 0) файл этого года в любом случае.
     // Возвращает пути записанных файлов; пусто — выгружать было нечего.
-    public GenericArray<string> export_changed (int with_year = 0) throws Error {
-        var years = database.changed_years ();
-        if (with_year != 0 && !(with_year in years)) {
-            years += with_year;
+    public GenericArray<string> export_changed (int with_school_year = 0) throws Error {
+        var years = database.changed_school_years ();
+        if (with_school_year != 0 && !(with_school_year in years)) {
+            years += with_school_year;
         }
 
         var now = new DateTime.now_local ();
         var written = new GenericArray<string> ();
         foreach (var year in years) {
-            var path = export_year (year);
+            var path = export_school_year (year);
             database.mark_exported (now, path, now);
             written.add (path);
         }
         return written;
     }
 
-    // Собрать файл года заново. Возвращает путь к файлу.
-    public string export_year (int year) throws Error {
+    // Собрать файл учебного года заново. Возвращает путь к файлу.
+    public string export_school_year (int school_year) throws Error {
         if (DirUtils.create_with_parents (directory, 0755) != 0) {
             throw new ExportError.FAILED ("Не удалось создать папку %s: %s",
                 directory, strerror (errno));
         }
 
-        var path = file_for_year (year);
+        var path = file_for_school_year (school_year);
         var tmp_path = path + ".tmp";
         var workbook = Xlsx.Workbook.create (tmp_path);
         if (workbook == null) {
@@ -65,7 +66,7 @@ public class ExcelExporter {
         }
 
         try {
-            write_workbook (workbook, year);
+            write_workbook (workbook, school_year);
         } catch (Error e) {
             workbook.close ();
             FileUtils.remove (tmp_path);
@@ -85,7 +86,7 @@ public class ExcelExporter {
         return path;
     }
 
-    private void write_workbook (Xlsx.Workbook workbook, int year) throws Error {
+    private void write_workbook (Xlsx.Workbook workbook, int school_year) throws Error {
         unowned var header = workbook.add_format ();
         header.set_bold ();
         header.set_bg_color (0xDDEBF7);
@@ -100,12 +101,12 @@ public class ExcelExporter {
 
         // Лист «Итого»: строка на каждый день
         unowned var summary = add_sheet (workbook, "Итого");
-        summary.set_column (0, 0, 14);
+        summary.set_column (0, 0, 22);
         summary.set_column (1, 2, 12);
         summary.freeze_panes (1, 0);
         write_row (summary, 0, { "Дата", "Завтраков", "Обедов" }, header);
 
-        var days = database.meal_days (year);
+        var days = database.meal_days (school_year);
         int year_breakfasts = 0, year_lunches = 0;
         unowned Xlsx.Worksheet last_sheet = summary;
 
@@ -126,7 +127,7 @@ public class ExcelExporter {
         }
 
         var total_row = days.length + 1;
-        summary.write_string (total_row, 0, days.length > 0 ? "Всего за год" : "Выдачи не было", total);
+        summary.write_string (total_row, 0, days.length > 0 ? "Всего за учебный год" : "Выдачи не было", total);
         summary.write_number (total_row, 1, year_breakfasts, total);
         summary.write_number (total_row, 2, year_lunches, total);
 

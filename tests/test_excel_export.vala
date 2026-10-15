@@ -30,11 +30,12 @@ void test_export_changed () throws Error {
     var db = sample_database ();
     var exporter = new ExcelExporter (db, Path.build_filename (tmp_dir, "Столовая"));
 
-    // Первая выгрузка: файл на каждый год с записями
+    // Первая выгрузка: файл на каждый учебный год с записями
+    // (октябрь 2024 — год 2024–2025, октябрь 2025 — 2025–2026)
     var files = exporter.export_changed ();
     assert_cmpint (files.length, CompareOperator.EQ, 2);
-    assert_true (files[0].has_suffix ("/Столовая/столовая_2024.xlsx"));
-    assert_true (files[1].has_suffix ("/Столовая/столовая_2025.xlsx"));
+    assert_true (files[0].has_suffix ("/Столовая/столовая_2024-2025.xlsx"));
+    assert_true (files[1].has_suffix ("/Столовая/столовая_2025-2026.xlsx"));
     assert_xlsx (files[0]);
     assert_xlsx (files[1]);
 
@@ -44,14 +45,14 @@ void test_export_changed () throws Error {
     // Год можно пересобрать принудительно, даже без записей
     files = exporter.export_changed (2023);
     assert_cmpint (files.length, CompareOperator.EQ, 1);
-    assert_xlsx (exporter.file_for_year (2023));
+    assert_xlsx (exporter.file_for_school_year (2023));
 }
 
 void test_export_year_bad_directory () throws Error {
     var db = sample_database ();
     var exporter = new ExcelExporter (db, "/proc/нет/Столовая");
     try {
-        exporter.export_year (2025);
+        exporter.export_school_year (2025);
         assert_not_reached ();
     } catch (ExportError e) {
         assert_true (e is ExportError.FAILED);
@@ -71,7 +72,7 @@ int main (string[] args) {
 
     var dir = Path.build_filename (tmp_dir, "Столовая");
     foreach (var year in new int[] { 2023, 2024, 2025 }) {
-        FileUtils.remove (Path.build_filename (dir, "столовая_%d.xlsx".printf (year)));
+        FileUtils.remove (Path.build_filename (dir, "столовая_%d-%d.xlsx".printf (year, year + 1)));
     }
     DirUtils.remove (dir);
     DirUtils.remove (tmp_dir);
