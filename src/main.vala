@@ -28,7 +28,7 @@ public class HelloApp : Adw.Application {
         about.activate.connect (show_about);
         add_action (about);
 
-        var path = Path.build_filename (Environment.get_user_data_dir (), application_id, "canteen.db");
+        var path = Config.DATABASE_PATH;
         try {
             database = new Database (path);
             if (demo_data) {

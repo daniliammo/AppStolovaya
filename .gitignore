@@ -1,1 +1,4 @@
 /build/
+canteen.db
+canteen.db-wal
+canteen.db-shm

@@ -1,0 +1,5 @@
+// Генерируется meson из config.vala.in, не редактировать build/config.vala.
+namespace Config {
+    // База данных лежит в корне репозитория
+    public const string DATABASE_PATH = @DATABASE_PATH@;
+}

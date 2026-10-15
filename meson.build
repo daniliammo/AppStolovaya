@@ -9,8 +9,17 @@ glib_deps = [
 ]
 sqlite_dep = dependency('sqlite3')
 
+conf = configuration_data()
+conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
+config_vala = configure_file(
+  input: 'src/config.vala.in',
+  output: 'config.vala',
+  configuration: conf,
+)
+
 executable('hello-gtk4',
   'src/main.vala',
+  config_vala,
   'src/database.vala',
   'src/main_window_ui.vala',
   'src/window.vala',
