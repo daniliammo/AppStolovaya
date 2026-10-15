@@ -37,6 +37,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
 
         var about_section = new Menu ();
         about_section.append ("О программе", "app.about");
+        about_section.append ("Выход", "app.quit");
 
         var menu = new Menu ();
         menu.append_section (null, main_section);

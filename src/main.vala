@@ -4,12 +4,16 @@
 public class HelloApp : Adw.Application {
     private Database? database;
     private string? database_error;
+    private ExcelExporter? exporter;
     private bool demo_data = false;
+    private string today = "";  // 'YYYY-MM-DD', чтобы заметить полночь
 
     public HelloApp () {
         Object (
             application_id: "org.example.Test",
-            flags: ApplicationFlags.DEFAULT_FLAGS
+            flags: ApplicationFlags.DEFAULT_FLAGS,
+            // Узнавать о выходе из сеанса и выключении (сигнал query-end)
+            register_session: true
         );
 
         add_main_option ("demo-data", 0, OptionFlags.NONE, OptionArg.NONE,
@@ -28,6 +32,12 @@ public class HelloApp : Adw.Application {
         about.activate.connect (show_about);
         add_action (about);
 
+        // Выход: окна закрываются, затем shutdown () делает выгрузку
+        var quit_action = new SimpleAction ("quit", null);
+        quit_action.activate.connect (() => quit ());
+        add_action (quit_action);
+        set_accels_for_action ("app.quit", { "<Control>q" });
+
         var path = Config.DATABASE_PATH;
         try {
             database = new Database (path);
@@ -38,7 +48,34 @@ public class HelloApp : Adw.Application {
             database = null;
             database_error = e.message;
             critical ("База данных %s: %s", path, e.message);
+            return;
         }
+
+        exporter = new ExcelExporter (database, ExcelExporter.default_directory ());
+
+        var export = new SimpleAction ("export", null);
+        export.activate.connect (() => {
+            run_export (new DateTime.now_local ().get_year ());
+        });
+        add_action (export);
+
+        // Выгрузка в полночь: проверяем дату каждые 30 секунд
+        today = Database.format_date (new DateTime.now_local ());
+        Timeout.add_seconds (30, () => {
+            var day = Database.format_date (new DateTime.now_local ());
+            if (day != today) {
+                today = day;
+                run_export ();
+            }
+            return Source.CONTINUE;
+        });
+
+        // Выход из сеанса: не даём завершить сеанс, пока файл не записан
+        query_end.connect (() => {
+            var cookie = inhibit (active_window, Gtk.ApplicationInhibitFlags.LOGOUT, "Сохранение Excel-файла");
+            run_export ();
+            uninhibit (cookie);
+        });
     }
 
     protected override void activate () {
@@ -46,8 +83,77 @@ public class HelloApp : Adw.Application {
             show_database_error ();
             return;
         }
+        var first_start = active_window == null;
         var window = active_window ?? new MainWindow (this, database);
         window.present ();
+
+        // При запуске догоняем выгрузку, если программа была закрыта
+        // или компьютер выключен, когда были новые записи
+        if (first_start) {
+            run_export ();
+        }
+    }
+
+    // Закрытие программы: выгружаем всё, что изменилось
+    protected override void shutdown () {
+        if (exporter != null) {
+            run_export ();
+        }
+        base.shutdown ();
+    }
+
+    // Пересобрать файлы лет с новыми записями (и with_year в любом случае)
+    // и сообщить об этом. Ничего не изменилось — ничего не пишем и не сообщаем.
+    private void run_export (int with_year = 0) {
+        GenericArray<string> files;
+        try {
+            files = exporter.export_changed (with_year);
+        } catch (Error e) {
+            critical ("Выгрузка в Excel: %s", e.message);
+            send_desktop_notification ("Не удалось сохранить Excel-файл", e.message);
+            return;
+        }
+        if (files.length == 0) {
+            return;
+        }
+
+        var names = new string[0];
+        foreach (var file in files) {
+            names += display_path (file);
+        }
+        send_desktop_notification (files.length == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены",
+            string.joinv ("\n", names));
+    }
+
+    // Системное уведомление GNOME. Через org.freedesktop.Notifications напрямую:
+    // GLib.Notification в GNOME работает только для приложений
+    // с установленным .desktop-файлом.
+    private static void send_desktop_notification (string title, string body) {
+        try {
+            var bus = Bus.get_sync (BusType.SESSION);
+            bus.call_sync (
+                "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                "org.freedesktop.Notifications", "Notify",
+                new Variant.tuple ({
+                    new Variant.string ("Столовая"),  // имя приложения
+                    new Variant.uint32 (0),            // id заменяемого уведомления
+                    new Variant.string ("x-office-spreadsheet"),
+                    new Variant.string (title),
+                    new Variant.string (body),
+                    new Variant.array (VariantType.STRING, {}),        // кнопки
+                    new Variant.array (new VariantType ("{sv}"), {}),  // подсказки
+                    new Variant.int32 (-1)             // время показа по умолчанию
+                }),
+                null, DBusCallFlags.NONE, 2000);
+        } catch (Error e) {
+            warning ("Уведомление не отправлено: %s", e.message);
+        }
+    }
+
+    // /home/user/Документы/Столовая/x.xlsx → Документы/Столовая/x.xlsx
+    private static string display_path (string path) {
+        var home = Environment.get_home_dir () + "/";
+        return path.has_prefix (home) ? path.substring (home.length) : path;
     }
 
     // Без базы работать нельзя: сообщаем об ошибке и выходим
