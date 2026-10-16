@@ -12,6 +12,18 @@ void test_parse_card () {
     assert_cmpstr (card.raw, CompareOperator.EQ, "Em-Marine[5500] 120,09886");
 }
 
+void test_parse_mifare () {
+    var card = CardRead.parse ("Mifare[658E6180045D85] 004,23941 UL (0144,00)\r");
+    assert_nonnull (card);
+    assert_cmpstr (card.card_type, CompareOperator.EQ, "Mifare");
+    assert_cmpstr (card.code, CompareOperator.EQ, "658E6180045D85");
+    assert_true (card.uid == 4 * 65536 + 23941);
+
+    card = CardRead.parse ("Mifare[01020304] 003,00513  (0004,20)");
+    assert_nonnull (card);
+    assert_true (card.uid == 3 * 65536 + 513);
+}
+
 void test_parse_bounds () {
     assert_true (CardRead.parse ("Em-Marine[0000] 255,65535").uid == 0xFFFFFF);
     assert_true (CardRead.parse ("Em-Marine[0000] 000,00000").uid == 0);
@@ -29,6 +41,7 @@ void test_parse_other_lines () {
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/card-reader/parse-card", test_parse_card);
+    Test.add_func ("/card-reader/parse-mifare", test_parse_mifare);
     Test.add_func ("/card-reader/parse-bounds", test_parse_bounds);
     Test.add_func ("/card-reader/parse-other-lines", test_parse_other_lines);
     return Test.run ();
