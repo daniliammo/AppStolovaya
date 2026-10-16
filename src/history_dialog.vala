@@ -1,9 +1,12 @@
 // Окно истории: кто и когда получил питание в любой прошедший день.
 // Разметка — в history_dialog_ui.vala (HistoryDialogUi).
 
-// В GTK 4.20 select_day () устарела, а в привязках Vala 0.56 замены ещё нет
+// В GTK 4.20 select_day () устарела, а в привязках Vala 0.56 замены ещё нет.
+// В 32-битной сборке GTK 4.18 (Debian), там set_date () ещё нет.
+#if GTK_4_20
 [CCode (cname = "gtk_calendar_set_date")]
 extern void calendar_set_date (Gtk.Calendar calendar, DateTime date);
+#endif
 
 public class HistoryDialog : HistoryDialogUi {
     private Database database;
@@ -45,7 +48,11 @@ public class HistoryDialog : HistoryDialogUi {
         date_button.label = label.get_char (0).totitle ().to_string () + label.substring (label.index_of_nth_char (1));
 
         updating = true;
+#if GTK_4_20
         calendar_set_date (calendar, day);
+#else
+        calendar.select_day (day);
+#endif
         updating = false;
         mark_calendar ();
 

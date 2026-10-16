@@ -19,6 +19,12 @@ if get_option('debug')
   add_project_arguments('-D', 'DEBUG', language: 'vala')
 endif
 
+gtk_dep = dependency('gtk4')
+# gtk_calendar_set_date () — с GTK 4.20; в 32-битной сборке (Debian) GTK 4.18
+if gtk_dep.version().version_compare('>= 4.20')
+  add_project_arguments('-D', 'GTK_4_20', language: 'vala')
+endif
+
 # Свои .vapi для библиотек без привязок к Vala (xlsxwriter)
 add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', language: 'vala')
 
@@ -53,7 +59,7 @@ executable('hello-gtk4',
     xlsxwriter_dep,
     gio_dep,
     posix_dep,
-    dependency('gtk4'),
+    gtk_dep,
     dependency('libadwaita-1', version: '>= 1.5'),
   ],
   install: true,
