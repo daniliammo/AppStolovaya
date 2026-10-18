@@ -1,19 +1,66 @@
 // Разметка главного окна: создание виджетов и их расположение.
 // Логика — в window.vala (класс MainWindow наследует MainWindowUi).
+//
+// Слева большая карточка состояния (Gtk.Stack) и счётчики под ней,
+// справа — последние выдачи. Карточка состояния переключается между
+// страницами «ожидание», «ученик» и «результат»; цвет результата задаётся
+// классами status-ok / status-again / status-unknown (стили — в styles.vala).
 
 public abstract class MainWindowUi : Adw.ApplicationWindow {
+    // Имена страниц карточки состояния
+    protected const string PAGE_IDLE = "idle";
+    protected const string PAGE_STUDENT = "student";
+    protected const string PAGE_RESULT = "result";
+
     protected Adw.ToastOverlay toast_overlay;
     protected Adw.WindowTitle window_title;
+
+    // Сканер: значок в заголовке и полоса с кнопкой «Настроить», когда он не работает
+    protected Gtk.Image reader_icon;
+    protected Adw.Banner reader_banner;
+    protected Gtk.ToggleButton dark_button;
+
+    // Карточка состояния и её страницы
+    protected Gtk.Box status_card;
+    protected Gtk.Stack stack;
+    // Ожидание
+    protected Gtk.Label clock_label;
+    protected Gtk.Label meal_period_label;
+    // Ученик
+    protected Adw.Avatar student_avatar;
+    protected Gtk.Label student_name;
+    protected Gtk.Label student_group;
+    protected Gtk.Label student_hint;
+    protected Gtk.Button primary_button;    // «Выдать обед» — основной приём пищи
+    protected Gtk.Button secondary_button;  // другой приём пищи, если разрешены оба
+    // Результат
+    protected Gtk.Image result_icon;
+    protected Gtk.Label result_title;
+    protected Gtk.Label result_subtitle;
+
+    // Счётчики за сегодня
+    protected Gtk.Box breakfast_tile;
+    protected Gtk.Box lunch_tile;
     protected Gtk.Label breakfast_count;
     protected Gtk.Label lunch_count;
+    protected Gtk.Label remaining_label;
+    protected Gtk.Label remaining_caption;
+    protected Gtk.ProgressBar remaining_progress;
+
+    // Последние выдачи
+    protected Gtk.ListBox recent_list;
+
 #if DEBUG
     protected Gtk.Entry card_entry;
     // Тестовый режим: какой приём пищи показать (0 — по настройкам, 1 — завтрак, 2 — обед)
     protected Gtk.DropDown meal_choice;
 #endif
-    // Состояние сканера: красный крестик или зелёная галочка и надпись
-    protected Gtk.Image reader_icon;
-    protected Gtk.Label reader_label;
+
+    // Кнопки на странице ученика
+    protected abstract void on_primary_clicked ();
+    protected abstract void on_secondary_clicked ();
+    // «Отмена» — вернуться к ожиданию, ничего не списывая
+    protected abstract void on_cancel_clicked ();
 
 #if DEBUG
     // Enter в поле номера карточки или кнопка «Приложить карточку»
@@ -22,13 +69,34 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
 
     construct {
         title = "Столовая";
-        default_width = 800;
-        default_height = 600;
+        default_width = 1100;
+        default_height = 720;
+
+        var main_column = new Gtk.Box (Gtk.Orientation.VERTICAL, 18) {
+            hexpand = true
+        };
+        main_column.append (build_status_card ());
+        main_column.append (build_counters ());
+
+        var body = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 18) {
+            margin_top = 18,
+            margin_bottom = 18,
+            margin_start = 18,
+            margin_end = 18
+        };
+        body.append (main_column);
+        body.append (build_recent_panel ());
+
+        reader_banner = new Adw.Banner ("Сканер не подключён") {
+            button_label = "Настроить",
+            action_name = "app.preferences"
+        };
 
         var toolbar = new Adw.ToolbarView () {
-            content = build_waiting_screen ()
+            content = body
         };
         toolbar.add_top_bar (build_header_bar ());
+        toolbar.add_top_bar (reader_banner);
 #if DEBUG
         toolbar.add_bottom_bar (build_simulation_bar ());
 #endif
@@ -48,12 +116,16 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         main_section.append ("Обновить Excel-файл", "app.export");
         main_section.append ("Настройки", "app.preferences");
 
+        var view_section = new Menu ();
+        view_section.append ("Во весь экран", "win.fullscreen");
+
         var about_section = new Menu ();
         about_section.append ("О программе", "app.about");
         about_section.append ("Выход", "app.quit");
 
         var menu = new Menu ();
         menu.append_section (null, main_section);
+        menu.append_section (null, view_section);
         menu.append_section (null, about_section);
 
         var menu_button = new Gtk.MenuButton () {
@@ -63,20 +135,56 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             tooltip_text = "Главное меню"
         };
 
+        dark_button = new Gtk.ToggleButton () {
+            icon_name = "weather-clear-night-symbolic",
+            tooltip_text = "Тёмная тема"
+        };
+
+        // Маленький значок состояния сканера; подробности — во всплывающей подсказке
+        reader_icon = new Gtk.Image () {
+            pixel_size = 16,
+            margin_start = 6
+        };
+        reader_icon.add_css_class ("reader-indicator");
+
         var header = new Adw.HeaderBar () {
             title_widget = window_title
         };
+        header.pack_start (reader_icon);
         header.pack_end (menu_button);
+        header.pack_end (dark_button);
         return header;
     }
 
-    // «Приложите карточку» и счётчики выдачи за сегодня
-    private Gtk.Widget build_waiting_screen () {
+    // Большая карточка состояния: ожидание → ученик → результат
+    private Gtk.Widget build_status_card () {
+        stack = new Gtk.Stack () {
+            transition_type = Gtk.StackTransitionType.CROSSFADE,
+            transition_duration = 250,
+            vexpand = true,
+            hexpand = true
+        };
+        stack.add_named (build_idle_page (), PAGE_IDLE);
+        stack.add_named (build_student_page (), PAGE_STUDENT);
+        stack.add_named (build_result_page (), PAGE_RESULT);
+
+        status_card = new Gtk.Box (Gtk.Orientation.VERTICAL, 0) {
+            vexpand = true
+        };
+        status_card.add_css_class ("card");
+        status_card.add_css_class ("status-card");
+        status_card.append (stack);
+        return status_card;
+    }
+
+    // «Приложите карточку», большие часы и текущий приём пищи
+    private Gtk.Widget build_idle_page () {
         var icon = new Gtk.Image.from_icon_name ("auth-smartcard-symbolic") {
             pixel_size = 128,
             margin_bottom = 12
         };
         icon.add_css_class ("dim-label");
+        icon.add_css_class ("breathing");
 
         var title = new Gtk.Label ("Приложите карточку");
         title.add_css_class ("title-1");
@@ -87,67 +195,204 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         };
         hint.add_css_class ("dim-label");
 
-        var counters = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) {
-            homogeneous = true,
-            margin_top = 24
+        clock_label = new Gtk.Label ("00:00") {
+            margin_top = 18
         };
-        counters.append (build_counter_card ("завтраков сегодня", out breakfast_count));
-        counters.append (build_counter_card ("обедов сегодня", out lunch_count));
+        clock_label.add_css_class ("big-clock");
+
+        meal_period_label = new Gtk.Label (null);
+        meal_period_label.add_css_class ("title-3");
+        meal_period_label.add_css_class ("accent");
 
         var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 12) {
             halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER,
-            margin_top = 24,
-            margin_bottom = 24,
-            margin_start = 24,
-            margin_end = 24
+            valign = Gtk.Align.CENTER
         };
         box.append (icon);
         box.append (title);
         box.append (hint);
-        box.append (counters);
-        box.append (build_reader_status ());
+        box.append (clock_label);
+        box.append (meal_period_label);
         return box;
     }
 
-    // «✓ Сканер подключён» / «✗ Сканер не подключён»; цвет задаёт логика
-    // классами success / error / warning
-    private Gtk.Widget build_reader_status () {
-        reader_icon = new Gtk.Image () {
-            pixel_size = 24
-        };
-        reader_label = new Gtk.Label (null);
-        reader_label.add_css_class ("title-4");
+    // Ученик: аватар, ФИО, группа и большая кнопка выдачи
+    private Gtk.Widget build_student_page () {
+        student_avatar = new Adw.Avatar (160, null, true);
 
-        var status = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
-            halign = Gtk.Align.CENTER,
-            margin_top = 24
+        student_name = new Gtk.Label (null) {
+            wrap = true,
+            justify = Gtk.Justification.CENTER
         };
-        status.append (reader_icon);
-        status.append (reader_label);
-        return status;
+        student_name.add_css_class ("student-name");
+
+        student_group = new Gtk.Label (null);
+        student_group.add_css_class ("title-2");
+        student_group.add_css_class ("dim-label");
+
+        primary_button = new Gtk.Button () {
+            margin_top = 18
+        };
+        primary_button.add_css_class ("meal-button");
+        primary_button.add_css_class ("suggested-action");
+        primary_button.clicked.connect (() => on_primary_clicked ());
+
+        secondary_button = new Gtk.Button ();
+        secondary_button.add_css_class ("touch-button");
+        secondary_button.add_css_class ("pill");
+        secondary_button.clicked.connect (() => on_secondary_clicked ());
+
+        var cancel_button = new Gtk.Button.with_label ("Отмена") {
+            halign = Gtk.Align.CENTER
+        };
+        cancel_button.add_css_class ("touch-button");
+        cancel_button.add_css_class ("flat");
+        cancel_button.clicked.connect (() => on_cancel_clicked ());
+
+        // Как выбран приём пищи: по времени или в тестовом режиме
+        student_hint = new Gtk.Label (null) {
+            wrap = true,
+            justify = Gtk.Justification.CENTER
+        };
+        student_hint.add_css_class ("caption");
+        student_hint.add_css_class ("dim-label");
+
+        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 12) {
+            valign = Gtk.Align.CENTER,
+            margin_start = 48,
+            margin_end = 48
+        };
+        box.append (student_avatar);
+        box.append (student_name);
+        box.append (student_group);
+        box.append (primary_button);
+        box.append (secondary_button);
+        box.append (cancel_button);
+        box.append (student_hint);
+        return box;
     }
 
-    // Плашка: крупное число и подпись под ним
-    private Gtk.Widget build_counter_card (string caption, out Gtk.Label count) {
-        count = new Gtk.Label ("0") {
-            margin_top = 12
+    // Результат: «✓ Обед выдан», «Обед уже получен», «Карточка не зарегистрирована»
+    private Gtk.Widget build_result_page () {
+        result_icon = new Gtk.Image () {
+            pixel_size = 128
         };
-        count.add_css_class ("title-1");
-        count.add_css_class ("numeric");
+        result_icon.add_css_class ("result-icon");
 
-        var caption_label = new Gtk.Label (caption) {
-            margin_bottom = 12,
+        result_title = new Gtk.Label (null) {
+            wrap = true,
+            justify = Gtk.Justification.CENTER
+        };
+        result_title.add_css_class ("result-title");
+
+        result_subtitle = new Gtk.Label (null) {
+            wrap = true,
+            justify = Gtk.Justification.CENTER
+        };
+        result_subtitle.add_css_class ("title-2");
+
+        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 18) {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER,
             margin_start = 24,
             margin_end = 24
         };
+        box.append (result_icon);
+        box.append (result_title);
+        box.append (result_subtitle);
+        return box;
+    }
+
+    // Плашки «Завтраки», «Обеды» и «Осталось X из Y» с полосой прогресса
+    private Gtk.Widget build_counters () {
+        breakfast_tile = build_counter_tile ("Завтраки", out breakfast_count);
+        lunch_tile = build_counter_tile ("Обеды", out lunch_count);
+
+        remaining_label = new Gtk.Label (null) {
+            xalign = 0
+        };
+        remaining_label.add_css_class ("title-2");
+        remaining_label.add_css_class ("numeric");
+
+        remaining_caption = new Gtk.Label (null) {
+            xalign = 0
+        };
+        remaining_caption.add_css_class ("dim-label");
+
+        remaining_progress = new Gtk.ProgressBar () {
+            margin_top = 12
+        };
+
+        var remaining = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
+            hexpand = true
+        };
+        remaining.add_css_class ("card");
+        remaining.add_css_class ("counter-tile");
+        remaining.append (remaining_caption);
+        remaining.append (remaining_label);
+        remaining.append (remaining_progress);
+
+        var strip = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
+        strip.append (breakfast_tile);
+        strip.append (lunch_tile);
+        strip.append (remaining);
+        return strip;
+    }
+
+    // Плашка: подпись и крупное число
+    private static Gtk.Box build_counter_tile (string caption, out Gtk.Label count) {
+        var caption_label = new Gtk.Label (caption) {
+            xalign = 0
+        };
         caption_label.add_css_class ("dim-label");
 
-        var card = new Gtk.Box (Gtk.Orientation.VERTICAL, 6);
-        card.add_css_class ("card");
-        card.append (count);
-        card.append (caption_label);
-        return card;
+        count = new Gtk.Label ("0") {
+            xalign = 0
+        };
+        count.add_css_class ("counter-number");
+        count.add_css_class ("numeric");
+
+        var tile = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
+            width_request = 160
+        };
+        tile.add_css_class ("card");
+        tile.add_css_class ("counter-tile");
+        tile.append (caption_label);
+        tile.append (count);
+        return tile;
+    }
+
+    // Справа: пять последних выдач за сегодня, новые сверху
+    private Gtk.Widget build_recent_panel () {
+        var heading = new Gtk.Label ("Последние выдачи") {
+            xalign = 0
+        };
+        heading.add_css_class ("heading");
+
+        // Список только для просмотра: без выделения и фокуса
+        recent_list = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.NONE,
+            valign = Gtk.Align.START,
+            can_focus = false
+        };
+        recent_list.add_css_class ("boxed-list");
+
+        var placeholder = new Gtk.Label ("Сегодня ещё никто не получал") {
+            wrap = true,
+            margin_top = 18,
+            margin_bottom = 18,
+            margin_start = 12,
+            margin_end = 12
+        };
+        placeholder.add_css_class ("dim-label");
+        recent_list.set_placeholder (placeholder);
+
+        var panel = new Gtk.Box (Gtk.Orientation.VERTICAL, 12) {
+            width_request = 300
+        };
+        panel.append (heading);
+        panel.append (recent_list);
+        return panel;
     }
 
 #if DEBUG
@@ -171,6 +416,10 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         button.add_css_class ("suggested-action");
         button.clicked.connect (on_simulate_card);
 
+        var keys = new Gtk.Label ("Ctrl+1/2/3 — тестовые карточки 1, 2, 3");
+        keys.add_css_class ("dim-label");
+        keys.add_css_class ("caption");
+
         var bar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
             halign = Gtk.Align.CENTER,
             margin_top = 6,
@@ -182,6 +431,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         bar.append (card_entry);
         bar.append (meal_choice);
         bar.append (button);
+        bar.append (keys);
         return bar;
     }
 #endif
