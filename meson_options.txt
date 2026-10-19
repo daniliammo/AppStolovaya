@@ -1,0 +1,2 @@
+option('portable', type: 'boolean', value: false,
+  description: 'Переносимая сборка: meson install кладёт программу и нужные ей .so в одну папку (prefix)')

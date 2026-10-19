@@ -52,8 +52,12 @@ namespace SystemSetup {
 
     // Запустить программу настройки от root. Возвращает его вывод.
     public async string run () throws Error {
+        // В переносимой сборке stolovaya-setup лежит рядом с программой
+        var program = Config.PORTABLE
+            ? Path.build_filename (Path.get_dirname (FileUtils.read_link ("/proc/self/exe")), "stolovaya-setup")
+            : Config.SETUP_PROGRAM;
         var process = new Subprocess.newv (
-            { "pkexec", Config.SETUP_PROGRAM },
+            { "pkexec", program },
             SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_MERGE);
         string output;
         yield process.communicate_utf8_async (null, null, out output, null);

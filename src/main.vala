@@ -46,7 +46,11 @@ public class HelloApp : Adw.Application {
         add_action (quit_action);
         set_accels_for_action ("app.quit", { "<Control>q" });
 
-        var path = Config.DATABASE_PATH;
+        // В переносимой сборке база — в папке данных пользователя
+        // (~/.local/share/Столовая): переживает замену папки с программой
+        var path = Config.PORTABLE
+            ? Path.build_filename (Environment.get_user_data_dir (), "Столовая", "canteen.db")
+            : Config.DATABASE_PATH;
         try {
             database = new Database (path);
             settings = new Settings (database);

@@ -28,7 +28,16 @@ endif
 # Свои .vapi для библиотек без привязок к Vala (xlsxwriter)
 add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', language: 'vala')
 
+# Переносимая сборка (./build.sh --package): программа, stolovaya-setup
+# и .so libadwaita и libxlsxwriter — в одной папке, её путь — prefix
+portable = get_option('portable')
+app_dir = portable ? get_option('prefix') : get_option('bindir')
+# Библиотеки ищутся рядом с программой. DT_RPATH, а не RUNPATH: RUNPATH
+# не действует на зависимости библиотек (minizip у libxlsxwriter и т. п.)
+app_link_args = portable ? ['-Wl,--disable-new-dtags,-rpath,$ORIGIN'] : []
+
 conf = configuration_data()
+conf.set('PORTABLE', portable.to_string())
 conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
 conf.set_quoted('SETUP_PROGRAM', meson.project_build_root() / 'stolovaya-setup')
 config_vala = configure_file(
@@ -37,7 +46,7 @@ config_vala = configure_file(
   configuration: conf,
 )
 
-executable('hello-gtk4',
+app = executable('hello-gtk4',
   'src/main.vala',
   config_vala,
   'src/database.vala',
@@ -62,8 +71,14 @@ executable('hello-gtk4',
     gtk_dep,
     dependency('libadwaita-1', version: '>= 1.5'),
   ],
+  link_args: app_link_args,
   install: true,
+  install_dir: app_dir,
 )
+
+if portable
+  meson.add_install_script('tools/bundle-libs.sh', app)
+endif
 
 test('card-reader', executable('test-card-reader',
   config_vala,
@@ -97,6 +112,8 @@ test('settings', executable('test-settings',
 executable('stolovaya-setup',
   'tools/setup_system.vala',
   dependencies: [glib_deps, posix_dep],
+  install: portable,
+  install_dir: app_dir,
 )
 
 # Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]
