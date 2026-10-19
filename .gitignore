@@ -5,3 +5,6 @@ canteen.db-wal
 canteen.db-shm
 /build32/
 /build32-release/
+/build-package/
+/build32-package/
+/dist/
