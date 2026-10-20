@@ -166,25 +166,30 @@ public class App : Adw.Application {
     // Системное уведомление GNOME. Через org.freedesktop.Notifications напрямую:
     // GLib.Notification в GNOME работает только для приложений
     // с установленным .desktop-файлом.
-    public static void send_desktop_notification (string title, string body) {
+    // replaces — id прежнего уведомления, которое заменить новым (0 — показать
+    // отдельно). Возвращает id показанного уведомления, 0 — если не вышло.
+    public static uint32 send_desktop_notification (string title, string body,
+            string icon = "x-office-spreadsheet", uint32 replaces = 0) {
         try {
             var bus = Bus.get_sync (BusType.SESSION);
-            bus.call_sync (
+            var reply = bus.call_sync (
                 "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
                 "org.freedesktop.Notifications", "Notify",
                 new Variant.tuple ({
                     new Variant.string ("Столовая"),  // имя приложения
-                    new Variant.uint32 (0),            // id заменяемого уведомления
-                    new Variant.string ("x-office-spreadsheet"),
+                    new Variant.uint32 (replaces),     // id заменяемого уведомления
+                    new Variant.string (icon),
                     new Variant.string (title),
                     new Variant.string (body),
                     new Variant.array (VariantType.STRING, {}),        // кнопки
                     new Variant.array (new VariantType ("{sv}"), {}),  // подсказки
                     new Variant.int32 (-1)             // время показа по умолчанию
                 }),
-                null, DBusCallFlags.NONE, 2000);
+                new VariantType ("(u)"), DBusCallFlags.NONE, 2000);
+            return reply.get_child_value (0).get_uint32 ();
         } catch (Error e) {
             warning ("Уведомление не отправлено: %s", e.message);
+            return 0;
         }
     }
 
