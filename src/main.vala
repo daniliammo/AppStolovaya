@@ -168,7 +168,7 @@ public class App : Adw.Application {
         var names = new string[0];
         exported_files = {};
         foreach (var file in files) {
-            names += display_path (file);
+            names += file;
             exported_files += file;
         }
         export_notification = send_desktop_notification (
@@ -267,12 +267,6 @@ public class App : Adw.Application {
             warning ("Уведомление не отправлено: %s", e.message);
             return 0;
         }
-    }
-
-    // /home/user/Документы/Столовая/x.xlsx → Документы/Столовая/x.xlsx
-    private static string display_path (string path) {
-        var home = Environment.get_home_dir () + "/";
-        return path.has_prefix (home) ? path.substring (home.length) : path;
     }
 
     // Без базы работать нельзя: сообщаем об ошибке и выходим
