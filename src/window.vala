@@ -20,6 +20,7 @@ public class MainWindow : MainWindowUi {
     private MealType primary_meal;
     private MealType? secondary_meal = null;
     private uint return_timeout = 0;  // таймер возврата к ожиданию
+    private uint32 card_notification = 0;  // id уведомления о карточке, чтобы заменять его
 
     // Одна выдача для списка «Последние выдачи»
     private class Issue {
@@ -203,6 +204,8 @@ public class MainWindow : MainWindowUi {
         stack.visible_child_name = PAGE_STUDENT;
         primary_button.grab_focus ();  // Enter выдаёт основной приём пищи
         schedule_return (STUDENT_SECONDS);
+        notify_if_inactive ("auth-smartcard-symbolic", found.full_name,
+            "%s · %s — в окне программы".printf (found.group_name, primary_button.label.down ()));
     }
 
     protected override void on_primary_clicked () {
@@ -258,6 +261,15 @@ public class MainWindow : MainWindowUi {
         set_status_class (css);
         stack.visible_child_name = PAGE_RESULT;
         schedule_return (RESULT_SECONDS);
+        notify_if_inactive (icon, title, subtitle);
+    }
+
+    // Карточку приложили, а окно свёрнуто или под другими окнами —
+    // сообщаем системным уведомлением. Новое заменяет прежнее.
+    private void notify_if_inactive (string icon, string title, string body) {
+        if (!is_active) {
+            card_notification = App.send_desktop_notification (title, body, icon, card_notification);
+        }
     }
 
     private void set_status_class (string? css) {
