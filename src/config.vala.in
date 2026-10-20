@@ -1,12 +1,10 @@
 // Генерируется meson из config.vala.in, не редактировать build/config.vala.
 namespace Config {
-    // Переносимая сборка (./build.sh --package): пути ниже не действуют,
-    // база и stolovaya-setup находятся во время работы
+    // Переносимая сборка (./build.sh --package): путь к базе ниже не действует,
+    // она находится во время работы
     public const bool PORTABLE = @PORTABLE@;
     // База данных лежит в корне репозитория
     public const string DATABASE_PATH = @DATABASE_PATH@;
-    // Программа настройки системы (запускается через pkexec)
-    public const string SETUP_PROGRAM = @SETUP_PROGRAM@;
     // Версия из meson.build
     public const string VERSION = @VERSION@;
 }

@@ -508,6 +508,11 @@ public class App : Adw.Application {
     }
 
     public static int main (string[] args) {
+        // Настройка системы от root (см. SystemSetup.run): без окна,
+        // программа завершается сразу после настройки
+        if (args.length == 2 && args[1] == SystemSetup.FLAG) {
+            return SystemSetup.apply ();
+        }
         return new App ().run (args);
     }
 }

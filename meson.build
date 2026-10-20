@@ -28,7 +28,7 @@ endif
 # Свои .vapi для библиотек без привязок к Vala (xlsxwriter)
 add_project_arguments('--vapidir', meson.project_source_root() / 'vapi', language: 'vala')
 
-# Переносимая сборка (./build.sh --package): программа, stolovaya-setup
+# Переносимая сборка (./build.sh --package): программа
 # и .so libadwaita и libxlsxwriter — в одной папке, её путь — prefix
 portable = get_option('portable')
 app_dir = portable ? get_option('prefix') : get_option('bindir')
@@ -39,7 +39,6 @@ app_link_args = portable ? ['-Wl,--disable-new-dtags,-rpath,$ORIGIN'] : []
 conf = configuration_data()
 conf.set('PORTABLE', portable.to_string())
 conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
-conf.set_quoted('SETUP_PROGRAM', meson.project_build_root() / 'stolovaya-setup')
 conf.set_quoted('VERSION', meson.project_version())
 config_vala = configure_file(
   input: 'src/config.vala.in',
@@ -114,14 +113,6 @@ test('file-users', executable('test-file-users',
   'tests/test_file_users.vala',
   dependencies: [glib_deps, posix_dep],
 ))
-
-# Настройка системы под считыватель, запускается программой через pkexec
-executable('stolovaya-setup',
-  'tools/setup_system.vala',
-  dependencies: [glib_deps, posix_dep],
-  install: portable,
-  install_dir: app_dir,
-)
 
 # Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]
 executable('demo-excel',
