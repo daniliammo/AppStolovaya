@@ -243,6 +243,11 @@ public class Database {
         return school_years ("WHERE id > coalesce ((SELECT max (last_meal_id) FROM exports), 0)");
     }
 
+    // Все учебные годы, в которых была выдача
+    public int[] meal_school_years () throws DatabaseError {
+        return school_years ("");
+    }
+
     // Номер последней записи журнала (0 — записей нет). Новые записи
     // получают номера больше, поэтому по нему видно, что уже выгружено.
     public int64 last_meal_id () throws DatabaseError {

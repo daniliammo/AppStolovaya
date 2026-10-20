@@ -42,6 +42,13 @@ void test_export_changed () throws Error {
     // Ничего не изменилось — ничего не пишется
     assert_cmpint (exporter.export_changed ().length, CompareOperator.EQ, 0);
 
+    // Файл удалили — собирается заново, хотя новых записей нет
+    FileUtils.remove (files[0]);
+    files = exporter.export_changed ();
+    assert_cmpint (files.length, CompareOperator.EQ, 1);
+    assert_true (files[0].has_suffix ("/Столовая/столовая_2024-2025.xlsx"));
+    assert_xlsx (files[0]);
+
     // Год можно пересобрать принудительно, даже без записей
     files = exporter.export_changed (2023);
     assert_cmpint (files.length, CompareOperator.EQ, 1);

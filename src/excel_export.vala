@@ -38,12 +38,18 @@ public class ExcelExporter {
     }
 
     // Пересобрать файлы учебных лет, где после прошлой выгрузки были новые
-    // записи, и (если with_school_year != 0) файл этого года в любом случае.
+    // записи или файла нет (удалили, перенесли), и (если with_school_year != 0)
+    // файл этого года в любом случае.
     // Возвращает пути записанных файлов; пусто — выгружать было нечего.
     public GenericArray<string> export_changed (int with_school_year = 0) throws Error {
         // Запомнить до выгрузки: всё, что новее, попадёт в следующую
         var last_meal = database.last_meal_id ();
         var years = database.changed_school_years ();
+        foreach (var year in database.meal_school_years ()) {
+            if (!(year in years) && !FileUtils.test (file_for_school_year (year), FileTest.EXISTS)) {
+                years += year;
+            }
+        }
         if (with_school_year != 0 && !(with_school_year in years)) {
             years += with_school_year;
         }

@@ -127,6 +127,15 @@ void test_school_years () throws Error {
     assert_cmpint (years.length, CompareOperator.EQ, 2);
     assert_cmpint (years[0], CompareOperator.EQ, 2023);
     assert_cmpint (years[1], CompareOperator.EQ, 2024);
+
+    // Все годы с выдачей — и после выгрузки
+    var now = new DateTime.now_local ();
+    db.mark_exported (now, "/tmp/a.xlsx", now, db.last_meal_id ());
+    assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
+    years = db.meal_school_years ();
+    assert_cmpint (years.length, CompareOperator.EQ, 2);
+    assert_cmpint (years[0], CompareOperator.EQ, 2023);
+    assert_cmpint (years[1], CompareOperator.EQ, 2024);
 }
 
 void test_settings () throws Error {
