@@ -5,6 +5,7 @@ public abstract class SettingsDialogUi : Adw.PreferencesDialog {
     protected Adw.SwitchRow auto_meal_row;
     protected Gtk.SpinButton lunch_hour;
     protected Gtk.SpinButton lunch_minute;
+    protected Adw.SwitchRow show_remaining_row;
     protected Adw.ActionRow reader_row;   // подключён ли считыватель
     protected Adw.ActionRow access_row;   // есть ли у программы доступ к нему
     protected Gtk.Button setup_button;
@@ -12,6 +13,7 @@ public abstract class SettingsDialogUi : Adw.PreferencesDialog {
 
     protected abstract void on_auto_meal_changed ();
     protected abstract void on_lunch_time_changed ();
+    protected abstract void on_show_remaining_changed ();
     protected abstract void on_setup_clicked ();
 
     construct {
@@ -51,8 +53,24 @@ public abstract class SettingsDialogUi : Adw.PreferencesDialog {
 
         var page = new Adw.PreferencesPage ();
         page.add (group);
+        page.add (build_screen_group ());
         page.add (build_system_group ());
         add (page);
+    }
+
+    // Что показывать на главном экране
+    private Adw.PreferencesGroup build_screen_group () {
+        show_remaining_row = new Adw.SwitchRow () {
+            title = "Показывать «Осталось»",
+            subtitle = "Сколько учеников с карточками ещё не получили завтрак или обед"
+        };
+        show_remaining_row.notify["active"].connect (on_show_remaining_changed);
+
+        var group = new Adw.PreferencesGroup () {
+            title = "Главный экран"
+        };
+        group.add (show_remaining_row);
+        return group;
     }
 
     // Считыватель карт: состояние и кнопка настройки системы

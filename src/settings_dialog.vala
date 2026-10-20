@@ -6,12 +6,15 @@ public class SettingsDialog : SettingsDialogUi {
     private bool loading = true;  // пока заполняем поля, ничего не сохраняем
 
     public signal void database_failed (DatabaseError e);
+    // Настройка сохранена: главному окну пора обновить экран
+    public signal void changed ();
 
     public SettingsDialog (Settings settings) {
         this.settings = settings;
         auto_meal_row.active = settings.auto_meal;
         lunch_hour.value = settings.lunch_from / 60;
         lunch_minute.value = settings.lunch_from % 60;
+        show_remaining_row.active = settings.show_remaining;
         loading = false;
         update_system_status ();
     }
@@ -63,6 +66,7 @@ public class SettingsDialog : SettingsDialogUi {
         }
         try {
             settings.save_auto_meal (auto_meal_row.active);
+            changed ();
         } catch (DatabaseError e) {
             database_failed (e);
         }
@@ -74,6 +78,19 @@ public class SettingsDialog : SettingsDialogUi {
         }
         try {
             settings.save_lunch_from (lunch_hour.get_value_as_int () * 60 + lunch_minute.get_value_as_int ());
+            changed ();
+        } catch (DatabaseError e) {
+            database_failed (e);
+        }
+    }
+
+    protected override void on_show_remaining_changed () {
+        if (loading) {
+            return;
+        }
+        try {
+            settings.save_show_remaining (show_remaining_row.active);
+            changed ();
         } catch (DatabaseError e) {
             database_failed (e);
         }

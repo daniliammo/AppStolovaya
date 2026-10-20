@@ -15,6 +15,7 @@ void test_meal_for_time () {
 void test_defaults () throws Error {
     var settings = new Settings (new Database (":memory:"));
     assert_true (settings.auto_meal);
+    assert_true (settings.show_remaining);
     assert_cmpint (settings.lunch_from, CompareOperator.EQ, Settings.DEFAULT_LUNCH_FROM);
     assert_true (settings.meal_at (at (10, 59)) == MealType.BREAKFAST);
     assert_true (settings.meal_at (at (11, 0)) == MealType.LUNCH);
@@ -25,10 +26,12 @@ void test_saved_in_database () throws Error {
     var settings = new Settings (db);
     settings.save_auto_meal (false);
     settings.save_lunch_from (12 * 60 + 15);
+    settings.save_show_remaining (false);
 
     // Новый объект читает сохранённое из базы
     var reloaded = new Settings (db);
     assert_false (reloaded.auto_meal);
+    assert_false (reloaded.show_remaining);
     assert_cmpint (reloaded.lunch_from, CompareOperator.EQ, 12 * 60 + 15);
     assert_true (reloaded.meal_at (at (12, 0)) == MealType.BREAKFAST);
 }

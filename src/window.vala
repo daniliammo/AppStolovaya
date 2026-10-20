@@ -303,6 +303,7 @@ public class MainWindow : MainWindowUi {
     public void show_settings () {
         var dialog = new SettingsDialog (settings);
         dialog.database_failed.connect (show_database_error);
+        dialog.changed.connect (update_counts);
         dialog.present (this);
     }
 
@@ -318,18 +319,13 @@ public class MainWindow : MainWindowUi {
             breakfast_count.label = counts.breakfasts.to_string ();
             lunch_count.label = counts.lunches.to_string ();
 
-            // Сколько учеников с карточками ещё не получили текущий приём пищи
-            int total = 0;
-            var students = database.list_students ();
-            foreach (var s in students) {
-                if (s.card_uid != null) {
-                    total++;
-                }
+            // Без плашки «Осталось» завтраки и обеды растягиваются на всю ширину
+            remaining_tile.visible = settings.show_remaining;
+            breakfast_tile.hexpand = !settings.show_remaining;
+            lunch_tile.hexpand = !settings.show_remaining;
+            if (settings.show_remaining) {
+                update_remaining (meal, counts);
             }
-            var issued = meal == MealType.BREAKFAST ? counts.breakfasts : counts.lunches;
-            remaining_caption.label = meal == MealType.BREAKFAST ? "Осталось на завтрак" : "Осталось на обед";
-            remaining_label.label = "%d из %d".printf (int.max (total - issued, 0), total);
-            remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
 
             update_recent (database.day_records (now));
         } catch (DatabaseError e) {
@@ -344,6 +340,21 @@ public class MainWindow : MainWindowUi {
             lunch_tile.add_css_class ("current");
             breakfast_tile.remove_css_class ("current");
         }
+    }
+
+    // Сколько учеников с карточками ещё не получили текущий приём пищи
+    private void update_remaining (MealType meal, MealCounts counts) throws DatabaseError {
+        int total = 0;
+        var students = database.list_students ();
+        foreach (var s in students) {
+            if (s.card_uid != null) {
+                total++;
+            }
+        }
+        var issued = meal == MealType.BREAKFAST ? counts.breakfasts : counts.lunches;
+        remaining_caption.label = meal == MealType.BREAKFAST ? "Осталось на завтрак" : "Осталось на обед";
+        remaining_label.label = "%d из %d".printf (int.max (total - issued, 0), total);
+        remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
     }
 
     // Последние выдачи из записей дня: каждый завтрак и обед отдельно, новые сверху

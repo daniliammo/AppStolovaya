@@ -14,6 +14,9 @@ public class Settings {
     // С какого времени начинается обед, в минутах от полуночи
     public int lunch_from { get; private set; default = DEFAULT_LUNCH_FROM; }
 
+    // Показывать на главном экране плашку «Осталось X из Y»
+    public bool show_remaining { get; private set; default = true; }
+
     public Settings (Database database) throws DatabaseError {
         this.database = database;
 
@@ -26,6 +29,10 @@ public class Settings {
         if (lunch != null && int.try_parse (lunch, out minutes) && minutes >= 0 && minutes < 24 * 60) {
             lunch_from = minutes;
         }
+        var remaining = database.get_setting ("show_remaining");
+        if (remaining != null) {
+            show_remaining = remaining == "true";
+        }
     }
 
     public void save_auto_meal (bool value) throws DatabaseError {
@@ -37,6 +44,11 @@ public class Settings {
         requires (minutes >= 0 && minutes < 24 * 60) {
         database.set_setting ("lunch_from", minutes.to_string ());
         lunch_from = minutes;
+    }
+
+    public void save_show_remaining (bool value) throws DatabaseError {
+        database.set_setting ("show_remaining", value.to_string ());
+        show_remaining = value;
     }
 
     // Какой приём пищи по времени: до начала обеда — завтрак

@@ -43,6 +43,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Box lunch_tile;
     protected Gtk.Label breakfast_count;
     protected Gtk.Label lunch_count;
+    protected Gtk.Box remaining_tile;  // можно скрыть в настройках
     protected Gtk.Label remaining_label;
     protected Gtk.Label remaining_caption;
     protected Gtk.ProgressBar remaining_progress;
@@ -323,19 +324,19 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             margin_top = 12
         };
 
-        var remaining = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
+        remaining_tile = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
             hexpand = true
         };
-        remaining.add_css_class ("card");
-        remaining.add_css_class ("counter-tile");
-        remaining.append (remaining_caption);
-        remaining.append (remaining_label);
-        remaining.append (remaining_progress);
+        remaining_tile.add_css_class ("card");
+        remaining_tile.add_css_class ("counter-tile");
+        remaining_tile.append (remaining_caption);
+        remaining_tile.append (remaining_label);
+        remaining_tile.append (remaining_progress);
 
         var strip = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
         strip.append (breakfast_tile);
         strip.append (lunch_tile);
-        strip.append (remaining);
+        strip.append (remaining_tile);
         return strip;
     }
 
