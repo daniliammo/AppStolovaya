@@ -20,7 +20,7 @@ if get_option('debug')
 endif
 
 gtk_dep = dependency('gtk4')
-# gtk_calendar_set_date () — с GTK 4.20; в 32-битной сборке (Debian) GTK 4.18
+# gtk_calendar_set_date () — с GTK 4.20, а, например, в Debian 13 GTK 4.18
 if gtk_dep.version().version_compare('>= 4.20')
   add_project_arguments('-D', 'GTK_4_20', language: 'vala')
 endif

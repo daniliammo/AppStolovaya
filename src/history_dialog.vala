@@ -2,7 +2,7 @@
 // Разметка — в history_dialog_ui.vala (HistoryDialogUi).
 
 // В GTK 4.20 select_day () устарела, а в привязках Vala 0.56 замены ещё нет.
-// В 32-битной сборке GTK 4.18 (Debian), там set_date () ещё нет.
+// В GTK 4.18 (например, Debian 13) set_date () ещё нет.
 #if GTK_4_20
 [CCode (cname = "gtk_calendar_set_date")]
 extern void calendar_set_date (Gtk.Calendar calendar, DateTime date);
