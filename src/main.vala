@@ -35,6 +35,7 @@ public class App : Adw.Application {
 
     protected override void startup () {
         base.startup ();
+        Styles.load ();
 
         var about = new SimpleAction ("about", null);
         about.activate.connect (show_about);
