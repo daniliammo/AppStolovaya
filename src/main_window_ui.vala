@@ -93,6 +93,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             action_name = "app.preferences"
         };
 
+        reader_banner.add_css_class ("error");
+
         var toolbar = new Adw.ToolbarView () {
             content = body
         };

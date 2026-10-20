@@ -74,6 +74,13 @@ namespace Styles {
             font-size: 40px;
             font-weight: 800;
         }
+        /* Плашка «Сканер не подключён». Adw.Banner красится только
+           переменной --banner-color (по умолчанию серой), класс .error
+           её не трогает — поэтому задаём цвет сами. */
+        banner.error {
+            --banner-color: var(--error-bg-color);
+        }
+
         .counter-tile progressbar trough,
         .counter-tile progressbar progress {
             min-height: 10px;
