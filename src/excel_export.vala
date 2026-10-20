@@ -78,12 +78,34 @@ public class ExcelExporter {
             FileUtils.remove (tmp_path);
             throw new ExportError.FAILED ("Не удалось записать %s: %s", path, result.to_string ());
         }
+        // Сначала данные на диск, потом rename: иначе при отключении питания
+        // на месте файла мог бы остаться пустой, а в базе — отметка о выгрузке
+        try {
+            sync_to_disk (tmp_path, Posix.O_RDONLY);
+        } catch (ExportError e) {
+            FileUtils.remove (tmp_path);
+            throw e;
+        }
         if (FileUtils.rename (tmp_path, path) != 0) {
             var message = strerror (errno);
             FileUtils.remove (tmp_path);
             throw new ExportError.FAILED ("Не удалось заменить %s: %s", path, message);
         }
+        // Сама замена — запись в папке
+        sync_to_disk (directory, Posix.O_RDONLY | Posix.O_DIRECTORY);
         return path;
+    }
+
+    private static void sync_to_disk (string path, int flags) throws ExportError {
+        var fd = Posix.open (path, flags);
+        if (fd < 0 || Posix.fsync (fd) != 0) {
+            var message = strerror (errno);
+            if (fd >= 0) {
+                Posix.close (fd);
+            }
+            throw new ExportError.FAILED ("Не удалось записать на диск %s: %s", path, message);
+        }
+        Posix.close (fd);
     }
 
     private void write_workbook (Xlsx.Workbook workbook, int school_year) throws Error {
