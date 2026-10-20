@@ -14,7 +14,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install GCC 15 And Vala
+    - name: Install GCC 15, Vala and dependencies
       # gcc-15 нужен для musttail → гарантированного TCO. Сборка и тесты требуют
       # gcc ≥ 15 (иначе — явная ошибка, а не тихая деградация). Делаем «cc»/«gcc»
       # ссылкой на gcc-15: транспилятор компилирует сгенерированный C ВНУТРЕННИМ
@@ -22,16 +22,18 @@ jobs:
       run: |
         sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
         sudo apt-get update
-        sudo apt-get install -y gcc-15 valac meson
+        sudo apt-get install -y gcc-15 valac meson ninja-build pkg-config \
+          libglib2.0-dev libgtk-4-dev libadwaita-1-dev \
+          libsqlite3-dev libxlsxwriter-dev
         sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100
         sudo update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-15 100
         cc --version
 
     - name: meson configure
-      run: meson build
+      run: meson setup build
       
     - name: meson run build
       run: meson compile -C build
       
     - name: tests
-      run: ./tests/run.sh
+      run: meson test -C build --print-errorlogs
