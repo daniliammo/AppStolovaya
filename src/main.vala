@@ -1,20 +1,20 @@
 // Учёт питания в столовой по NFC-карточкам.
 // Adw.Application сам следует системной теме (светлой или тёмной).
 
-public class HelloApp : Adw.Application {
+public class App : Adw.Application {
     private Database? database;
     private Settings? settings;
     private CardReader reader = new CardReader ();
     private string? database_error;
     private ExcelExporter? exporter;
 #if DEBUG
-    private bool demo_data = false;
+    private bool demo_data = true;
 #endif
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить полночь
 
-    public HelloApp () {
+    public App () {
         Object (
-            application_id: "org.example.Test",
+            application_id: "org.gurov.Stolovaya",
             flags: ApplicationFlags.DEFAULT_FLAGS,
             // Узнавать о выходе из сеанса и выключении (сигнал query-end)
             register_session: true
@@ -55,9 +55,8 @@ public class HelloApp : Adw.Application {
             database = new Database (path);
             settings = new Settings (database);
 #if DEBUG
-            if (demo_data) {
-                add_demo_students ();
-            }
+            add_demo_students ();
+
 #endif
         } catch (DatabaseError e) {
             database = null;
@@ -112,6 +111,11 @@ public class HelloApp : Adw.Application {
     }
 
     protected override void activate () {
+        Posix.statvfs buf;
+//         if (Posix.statvfs_exec ("/", out Posix.statvfs buf)) {
+//
+//         }
+
         if (database == null) {
             show_database_error ();
             return;
@@ -161,7 +165,7 @@ public class HelloApp : Adw.Application {
     // Системное уведомление GNOME. Через org.freedesktop.Notifications напрямую:
     // GLib.Notification в GNOME работает только для приложений
     // с установленным .desktop-файлом.
-    private static void send_desktop_notification (string title, string body) {
+    public static void send_desktop_notification (string title, string body) {
         try {
             var bus = Bus.get_sync (BusType.SESSION);
             bus.call_sync (
@@ -192,7 +196,7 @@ public class HelloApp : Adw.Application {
     // Без базы работать нельзя: сообщаем об ошибке и выходим
     private void show_database_error () {
         var window = new Adw.ApplicationWindow (this) {
-            title = "Столовая",
+            title = "Ошибка базы данных!",
             default_width = 400,
             default_height = 200
         };
@@ -207,9 +211,9 @@ public class HelloApp : Adw.Application {
 #if DEBUG
     private void add_demo_students () throws DatabaseError {
         string[,] students = {
-            { "Иванов Иван Иванович", "5А" },
-            { "Петрова Мария Сергеевна", "5А" },
-            { "Сидоров Алексей Петрович", "6Б" }
+            { "Иванов Иван Тестович", "ТЕСТ" },
+            { "Петрова Мария Сергеевна", "ТЕСТ" },
+            { "Сидоров Алексей Петрович", "ТЕСТ" }
         };
         for (int i = 0; i < students.length[0]; i++) {
             int64 card = i + 1;
@@ -224,13 +228,15 @@ public class HelloApp : Adw.Application {
         var dialog = new Adw.AboutDialog () {
             application_name = "Столовая",
             application_icon = "auth-smartcard-symbolic",
-            version = "0.1.0",
-            comments = "Учёт питания по NFC-карточкам"
+            version = Config.VERSION,
+            comments = "Учёт питания по карточкам\nРаботает с карточками EM-Marine и Mifare (125 кГц и 13.56 МГц).\nВидит некоторые телефоны, но только те которые представляются как Mifare.\nПротестировано на сканере IronLogic Z-2 (мод. RD AII)",
+            developer_name = "Гуров Данил Дмитриевич",
         };
+        dialog.set_license_type (Gtk.License.GPL_3_0);
         dialog.present (active_window);
     }
 
     public static int main (string[] args) {
-        return new HelloApp ().run (args);
+        return new App ().run (args);
     }
 }

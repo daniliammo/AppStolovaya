@@ -39,21 +39,23 @@ public class MainWindow : MainWindowUi {
 
         string icon, text, css;
         switch (reader.state) {
-        case ReaderState.CONNECTED:
-            icon = "object-select-symbolic";
-            text = "Сканер подключён";
-            css = "success";
-            break;
-        case ReaderState.NO_ACCESS:
-            icon = "dialog-warning-symbolic";
-            text = "Сканер подключён, но нет доступа: Настройки → «Настроить»";
-            css = "warning";
-            break;
-        default:
-            icon = "window-close-symbolic";
-            text = "Сканер не подключён";
-            css = "error";
-            break;
+            case ReaderState.CONNECTED:
+                App.send_desktop_notification ("Сканер подключен", "Все работает.");
+                icon = "object-select-symbolic";
+                text = "Сканер подключён";
+                css = "success";
+                break;
+            case ReaderState.NO_ACCESS:
+                icon = "dialog-warning-symbolic";
+                text = "Сканер подключён, но нет доступа: Настройки → «Настроить»";
+                css = "warning";
+                break;
+            default:
+                App.send_desktop_notification ("Сканер отключён", "Подключите сканер заново.");
+                icon = "window-close-symbolic";
+                text = "Сканер не подключён";
+                css = "error";
+                break;
         }
         reader_icon.icon_name = icon;
         reader_label.label = text;
@@ -88,7 +90,7 @@ public class MainWindow : MainWindowUi {
         }
 
         // Приложили следующую карточку — предыдущее окно закрывается
-        student_dialog?.force_close ();
+        student_dialog?.close ();
         student_dialog = dialog;
 
         dialog.meal_recorded.connect ((type) => {

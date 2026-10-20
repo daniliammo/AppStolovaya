@@ -21,6 +21,7 @@ public class CardRead {
     // Разобрать строку считывателя. null — это не строка с карточкой.
     public static CardRead? parse (string line) {
         MatchInfo match;
+        print (line + "\n");
         if (!/^([A-Za-z-]+)\[([0-9A-Fa-f]+)\]\s+(\d{1,3}),(\d{1,5})(?:\s+.*)?$/.match (line.strip (), 0, out match)) {
             return null;
         }

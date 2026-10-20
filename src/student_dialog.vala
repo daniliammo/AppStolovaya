@@ -48,11 +48,12 @@ public class StudentDialog : StudentDialogUi {
     private static void setup_button (Gtk.Button button, bool shown, string name, string? received_at) {
         button.visible = shown;
         button.sensitive = received_at == null;
-        // Полученный приём пищи — серая кнопка, чтобы не путать с доступной
+        // Полученный приём пищи — красная кнопка
         if (received_at == null) {
             button.add_css_class ("suggested-action");
         } else {
             button.remove_css_class ("suggested-action");
+            button.add_css_class ("destructive-action");
         }
         button.label = received_at == null
             ? name

@@ -1,5 +1,5 @@
-project('hello-gtk4', 'vala', 'c',
-  version: '0.1.0',
+project('Stolovaya', 'vala', 'c',
+  version: '0.9.1',
   meson_version: '>= 0.62.0',
 )
 
@@ -40,13 +40,14 @@ conf = configuration_data()
 conf.set('PORTABLE', portable.to_string())
 conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
 conf.set_quoted('SETUP_PROGRAM', meson.project_build_root() / 'stolovaya-setup')
+conf.set_quoted('VERSION', meson.project_version())
 config_vala = configure_file(
   input: 'src/config.vala.in',
   output: 'config.vala',
   configuration: conf,
 )
 
-app = executable('hello-gtk4',
+app = executable('Столовая',
   'src/main.vala',
   config_vala,
   'src/database.vala',

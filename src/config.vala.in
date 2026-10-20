@@ -7,4 +7,6 @@ namespace Config {
     public const string DATABASE_PATH = @DATABASE_PATH@;
     // Программа настройки системы (запускается через pkexec)
     public const string SETUP_PROGRAM = @SETUP_PROGRAM@;
+    // Версия из meson.build
+    public const string VERSION = @VERSION@;
 }
