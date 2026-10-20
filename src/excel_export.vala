@@ -5,12 +5,17 @@
 // libxlsxwriter не умеет дописывать в существующий файл, поэтому файл года
 // каждый раз собирается заново из базы: сначала во временный файл, затем
 // заменяет старый одной операцией rename, чтобы при сбое старый файл уцелел.
+// Ручные правки в файле при этом пропадают — об этом сказано на каждом листе.
 
 public errordomain ExportError {
     FAILED
 }
 
 public class ExcelExporter {
+    // Первая строка каждого листа, над шапкой таблицы
+    public const string NOTE = "Этот файл программа «Столовая» собирает заново из своей базы "
+        + "при каждой выгрузке — ручные правки в нём будут удалены.";
+
     private Database database;
 
     // Папка, куда пишутся файлы
@@ -121,12 +126,18 @@ public class ExcelExporter {
         unowned var centered = workbook.add_format ();
         centered.set_align (Xlsx.Align.CENTER);
 
+        unowned var note = workbook.add_format ();
+        note.set_italic ();
+        note.set_font_color (0xC00000);
+        note.set_text_wrap ();
+        note.set_align (Xlsx.Align.VERTICAL_CENTER);
+
         // Лист «Итого»: строка на каждый день
         unowned var summary = add_sheet (workbook, "Итого");
         summary.set_column (0, 0, 22);
         summary.set_column (1, 2, 12);
-        summary.freeze_panes (1, 0);
-        write_row (summary, 0, { "Дата", "Завтраков", "Обедов" }, header);
+        write_note (summary, 2, 3, note);
+        write_row (summary, 1, { "Дата", "Завтраков", "Обедов" }, header);
 
         var days = database.meal_days (school_year);
         int year_breakfasts = 0, year_lunches = 0;
@@ -138,17 +149,17 @@ public class ExcelExporter {
             var records = database.day_records (date);
 
             unowned var sheet = add_sheet (workbook, title);
-            var counts = write_day_sheet (sheet, title, records, header, total, centered);
+            var counts = write_day_sheet (sheet, title, records, header, total, centered, note);
             last_sheet = sheet;
 
-            summary.write_string (i + 1, 0, title);
-            summary.write_number (i + 1, 1, counts.breakfasts);
-            summary.write_number (i + 1, 2, counts.lunches);
+            summary.write_string (i + 2, 0, title);
+            summary.write_number (i + 2, 1, counts.breakfasts);
+            summary.write_number (i + 2, 2, counts.lunches);
             year_breakfasts += counts.breakfasts;
             year_lunches += counts.lunches;
         }
 
-        var total_row = days.length + 1;
+        var total_row = days.length + 2;
         summary.write_string (total_row, 0, days.length > 0 ? "Всего за учебный год" : "Выдачи не было", total);
         summary.write_number (total_row, 1, year_breakfasts, total);
         summary.write_number (total_row, 2, year_lunches, total);
@@ -161,17 +172,17 @@ public class ExcelExporter {
     private MealCounts write_day_sheet (Xlsx.Worksheet sheet, string date,
                                         GenericArray<DayRecord> records,
                                         Xlsx.Format header, Xlsx.Format total,
-                                        Xlsx.Format centered) {
+                                        Xlsx.Format centered, Xlsx.Format note) {
         sheet.set_column (0, 0, 36);
         sheet.set_column (1, 1, 10);
         sheet.set_column (2, 2, 12, centered);
         sheet.set_column (3, 4, 10, centered);
-        sheet.freeze_panes (1, 0);
         sheet.fit_to_pages (1, 0);  // печать: все столбцы на одной странице по ширине
-        write_row (sheet, 0, { "ФИО", "Группа", "Дата", "Завтрак", "Обед" }, header);
+        write_note (sheet, 4, 2, note);
+        write_row (sheet, 1, { "ФИО", "Группа", "Дата", "Завтрак", "Обед" }, header);
 
         MealCounts counts = { 0, 0 };
-        uint32 row = 1;
+        uint32 row = 2;
         foreach (var record in records) {
             write_row (sheet, row++, {
                 record.student.full_name,
@@ -192,6 +203,18 @@ public class ExcelExporter {
         sheet.write_number (row, 3, counts.breakfasts, total);
         sheet.write_number (row, 4, counts.lunches, total);
         return counts;
+    }
+
+    // Предупреждение NOTE в первой строке на ширину таблицы (столбцы 0..last_col).
+    // Высоту строки Excel для объединённых ячеек сам не подбирает — задаём
+    // по числу строк текста. Предупреждение и шапка закреплены при прокрутке.
+    // Справа от таблицы оно попало бы в печать и fit_to_pages ужал бы таблицу,
+    // а область печати libxlsxwriter пишет без кавычек вокруг имени листа
+    // «01.09.2026», и LibreOffice её не понимает.
+    private static void write_note (Xlsx.Worksheet sheet, uint16 last_col, int lines, Xlsx.Format note) {
+        sheet.merge_range (0, 0, 0, last_col, NOTE, note);
+        sheet.set_row (0, 15 * lines + 3);
+        sheet.freeze_panes (2, 0);
     }
 
     private static unowned Xlsx.Worksheet add_sheet (Xlsx.Workbook workbook, string name) throws ExportError {

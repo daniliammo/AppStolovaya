@@ -16,7 +16,8 @@ namespace Xlsx {
         NONE,
         LEFT,
         CENTER,
-        RIGHT
+        RIGHT,
+        VERTICAL_CENTER
     }
 
     [CCode (cname = "uint8_t", cprefix = "LXW_BORDER_", has_type_id = false)]
@@ -63,6 +64,15 @@ namespace Xlsx {
         [CCode (cname = "worksheet_fit_to_pages")]
         public void fit_to_pages (uint16 width, uint16 height);
 
+        // Объединить ячейки и записать в них строку
+        [CCode (cname = "worksheet_merge_range")]
+        public Error merge_range (uint32 first_row, uint16 first_col, uint32 last_row, uint16 last_col,
+                                  string text, Format? format = null);
+
+        // Высота строки в пунктах
+        [CCode (cname = "worksheet_set_row")]
+        public Error set_row (uint32 row, double height, Format? format = null);
+
         // Лист, открытый при открытии файла
         [CCode (cname = "worksheet_activate")]
         public void activate ();
@@ -73,6 +83,17 @@ namespace Xlsx {
     public class Format {
         [CCode (cname = "format_set_bold")]
         public void set_bold ();
+
+        [CCode (cname = "format_set_italic")]
+        public void set_italic ();
+
+        // Цвет 0xRRGGBB
+        [CCode (cname = "format_set_font_color")]
+        public void set_font_color (uint32 color);
+
+        // Переносить текст по словам
+        [CCode (cname = "format_set_text_wrap")]
+        public void set_text_wrap ();
 
         [CCode (cname = "format_set_align")]
         public void set_align (Align align);
