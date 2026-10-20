@@ -14,6 +14,7 @@ public class MainWindow : MainWindowUi {
     private CardReader reader;
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить смену дня
     private MealType? current_meal = null;  // приём пищи по времени, чтобы заметить смену
+    private int64 data_version = -1;  // чтобы заметить правку базы другой программой
 
     // Страница ученика: кто подошёл и какие кнопки что списывают
     private Student? student = null;
@@ -463,10 +464,19 @@ public class MainWindow : MainWindowUi {
 
         // В полночь счётчики обнуляются: за новый день выдачи ещё не было.
         // С началом обеда «Осталось» считается уже по обедам.
+        // Базу поправили другой программой (переименовали ученика в DB Browser,
+        // добавили учеников) — «Последние выдачи» и «Осталось» пересчитать
+        int64 version = data_version;
+        try {
+            version = database.data_version ();
+        } catch (DatabaseError e) {
+            // Не страшно: пересчитаем при следующей выдаче
+        }
         var day = Database.format_date (now);
-        if (day != today || current_meal == null || (MealType) current_meal != meal) {
+        if (day != today || current_meal == null || (MealType) current_meal != meal || version != data_version) {
             today = day;
             current_meal = meal;
+            data_version = version;
             update_counts ();
         }
     }

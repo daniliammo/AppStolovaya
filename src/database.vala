@@ -169,6 +169,10 @@ public class Database {
         """
     };
 
+    // Сколько ждать, если базу держит другая программа (DB Browser for SQLite
+    // держит её, пока в нём не нажали «Записать изменения»)
+    private const int BUSY_TIMEOUT_MS = 1000;
+
     private Sqlite.Database db;
 
     // path — путь к файлу базы или ":memory:" (для тестов)
@@ -182,11 +186,19 @@ public class Database {
                 path, db != null ? db.errmsg () : "нет памяти");
         }
 
+        db.busy_timeout (BUSY_TIMEOUT_MS);
         exec ("PRAGMA foreign_keys = ON");
         exec ("PRAGMA journal_mode = WAL");
         migrate ();
     }
 
+    // Меняется, когда базу изменила другая программа (свои изменения не в счёт):
+    // так окно узнаёт, что ученика переименовали в DB Browser
+    public int64 data_version () throws DatabaseError {
+        var stmt = prepare ("PRAGMA data_version");
+        step_row (stmt);
+        return stmt.column_int64 (0);
+    }
 
     public int schema_version () throws DatabaseError {
         var stmt = prepare ("PRAGMA user_version");
@@ -510,26 +522,37 @@ public class Database {
 
     // Шаг запроса, который возвращает строки: true — есть строка, false — строки кончились
     private bool step_row (Sqlite.Statement stmt) throws DatabaseError {
-        switch (stmt.step ()) {
+        var result = stmt.step ();
+        switch (result) {
         case Sqlite.ROW:
             return true;
         case Sqlite.DONE:
             return false;
         default:
-            throw new DatabaseError.QUERY ("%s", db.errmsg ());
+            throw step_error (result);
         }
     }
 
     // Шаг запроса без результата (INSERT, UPDATE)
     private void step_done (Sqlite.Statement stmt) throws DatabaseError {
-        switch (stmt.step ()) {
+        var result = stmt.step ();
+        switch (result) {
         case Sqlite.DONE:
             return;
         case Sqlite.CONSTRAINT:
             throw new DatabaseError.CONSTRAINT ("%s", db.errmsg ());
         default:
-            throw new DatabaseError.QUERY ("%s", db.errmsg ());
+            throw step_error (result);
         }
+    }
+
+    // «database is locked» человеку ничего не скажет
+    private DatabaseError step_error (int result) {
+        if (result == Sqlite.BUSY || result == Sqlite.LOCKED) {
+            return new DatabaseError.QUERY ("база занята другой программой (например, DB Browser for SQLite)"
+                + " — запишите или отмените изменения в ней");
+        }
+        return new DatabaseError.QUERY ("%s", db.errmsg ());
     }
 
     private static void bind_nullable_int64 (Sqlite.Statement stmt, int index, int64? value) {

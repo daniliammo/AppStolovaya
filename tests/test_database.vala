@@ -294,6 +294,38 @@ void test_student_renamed () throws Error {
     assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
 }
 
+// Базу держит другая программа (DB Browser с незаписанными изменениями):
+// понятная ошибка, а не «database is locked»
+void test_busy () throws Error {
+    var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
+    var path = Path.build_filename (dir, "canteen.db");
+    var db = new Database (path);
+    var id = db.add_student ("Иванов Иван", "5А", 1);
+    var version = db.data_version ();
+
+    Sqlite.Database other;
+    Sqlite.Database.open_v2 (path, out other);
+    assert_true (other.exec ("UPDATE students SET full_name = 'Иванов Илья'") == Sqlite.OK);
+    assert_true (db.data_version () != version);  // правку другой программой видно
+
+    assert_true (other.exec ("BEGIN IMMEDIATE") == Sqlite.OK);
+    try {
+        db.record_meal (id, MealType.LUNCH, at (15, 12, 0));
+        assert_not_reached ();
+    } catch (DatabaseError e) {
+        assert_true ("занята другой программой" in e.message);
+    }
+    other.exec ("ROLLBACK");
+    assert_true (db.record_meal (id, MealType.LUNCH, at (15, 12, 0)));
+    other = null;
+    db = null;
+
+    foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
+        FileUtils.remove (Path.build_filename (dir, name));
+    }
+    DirUtils.remove (dir);
+}
+
 void test_reopen_file () throws Error {
     var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
     var path = Path.build_filename (dir, "sub", "canteen.db");  // папка sub создаётся сама
@@ -318,6 +350,7 @@ int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/database/schema", () => wrap (test_schema));
     Test.add_func ("/database/student-renamed", () => wrap (test_student_renamed));
+    Test.add_func ("/database/busy", () => wrap (test_busy));
     Test.add_func ("/database/students", () => wrap (test_students));
     Test.add_func ("/database/student-constraints", () => wrap (test_student_constraints));
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));
