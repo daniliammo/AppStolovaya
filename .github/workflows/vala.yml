@@ -23,7 +23,7 @@ jobs:
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           gcc valac meson ninja-build pkg-config \
           libglib2.0-dev libgtk-4-dev libadwaita-1-dev \
-          libsqlite3-dev libxlsxwriter-dev
+          libsqlite3-dev libxlsxwriter-dev libminizip-dev
         cc --version
 
     - name: meson configure
