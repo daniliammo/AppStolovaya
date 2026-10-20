@@ -22,15 +22,16 @@ public class MainWindow : MainWindowUi {
     private uint return_timeout = 0;  // таймер возврата к ожиданию
     private uint32 card_notification = 0;  // id уведомления о карточке, чтобы заменять его
 
-    // Одна выдача для списка «Последние выдачи»
+    // Одна строка списка «Последние выдачи»: выдача или неизвестная карточка
     private class Issue {
         public string time;  // 'HH:MM:SS'
-        public Student student;
+        public Student? student;  // null — карточки нет в базе
         public MealType type;
+        public UnknownCard? card;  // неизвестная карточка (когда student — null)
     }
 
     // Приложили карточку (настоящую или в тестовом режиме)
-    public signal void card_presented (int64 uid);
+    public signal void card_presented (CardRead card);
 
     public MainWindow (Adw.Application app, Database database, Settings settings, CardReader reader) {
         Object (application: app);
@@ -47,8 +48,8 @@ public class MainWindow : MainWindowUi {
             return Source.CONTINUE;
         });
 
-        card_presented.connect ((uid) => show_student (uid));
-        reader.card_read.connect ((card) => card_presented (card.uid));
+        card_presented.connect ((card) => show_student (card));
+        reader.card_read.connect ((card) => card_presented (card));
         reader.notify["state"].connect (update_reader_status);
         update_reader_status ();
         show_idle ();
@@ -135,15 +136,14 @@ public class MainWindow : MainWindowUi {
 
     // Страница ученика. forced — приём пищи, выбранный в тестовом режиме;
     // null — по настройкам: по времени или обе кнопки.
-    private void show_student (int64 uid, MealType? forced = null) {
+    private void show_student (CardRead card, MealType? forced = null) {
         var now = new DateTime.now_local ();
         Student? found;
         DayRecord day;
         try {
-            found = database.find_student_by_card (uid);
+            found = database.find_student_by_card (card.uid);
             if (found == null) {
-                show_result ("status-unknown", "dialog-question-symbolic",
-                    "Карточка не зарегистрирована", @"Номер $uid · обратитесь к администратору");
+                show_unknown (card, now);
                 return;
             }
             day = database.student_day (found, now);
@@ -246,6 +246,25 @@ public class MainWindow : MainWindowUi {
         }
     }
 
+    // Карточки нет в базе: запоминаем прикладывание для «Последних выдач».
+    // Если записать не удалось, предупреждение о карточке всё равно показываем.
+    private void show_unknown (CardRead card, DateTime now) {
+        try {
+            database.record_unknown_card (new UnknownCard () {
+                raw = card.raw,
+                card_type = card.card_type,
+                code = card.code,
+                series = card.series,
+                number = card.number
+            }, now);
+            update_counts ();
+        } catch (DatabaseError e) {
+            show_database_error (e);
+        }
+        show_result ("status-unknown", "dialog-question-symbolic",
+            "Карточка не зарегистрирована", @"Номер $(card.uid) · обратитесь к администратору");
+    }
+
     private void show_already (Student who, MealType type, string at) {
         show_result ("status-again", "dialog-error-symbolic",
             "%s уже получен в %s".printf (meal_name (type), at.substring (0, 5)),
@@ -339,7 +358,7 @@ public class MainWindow : MainWindowUi {
                 update_remaining (meal, counts);
             }
 
-            update_recent (database.day_records (now));
+            update_recent (database.day_records (now), database.unknown_cards (now));
         } catch (DatabaseError e) {
             show_database_error (e);
         }
@@ -369,8 +388,9 @@ public class MainWindow : MainWindowUi {
         remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
     }
 
-    // Последние выдачи из записей дня: каждый завтрак и обед отдельно, новые сверху
-    private void update_recent (GenericArray<DayRecord> records) {
+    // Последние выдачи из записей дня: каждый завтрак и обед отдельно,
+    // вперемешку с неизвестными карточками, новые сверху
+    private void update_recent (GenericArray<DayRecord> records, GenericArray<UnknownCard> unknown) {
         var issues = new GenericArray<Issue> ();
         foreach (var record in records) {
             if (record.breakfast_at != null) {
@@ -379,6 +399,9 @@ public class MainWindow : MainWindowUi {
             if (record.lunch_at != null) {
                 issues.add (new Issue () { time = record.lunch_at, student = record.student, type = MealType.LUNCH });
             }
+        }
+        foreach (var card in unknown) {
+            issues.add (new Issue () { time = card.scanned_at, student = null, card = card });
         }
         issues.sort ((a, b) => strcmp (b.time, a.time));
 
@@ -390,12 +413,22 @@ public class MainWindow : MainWindowUi {
         for (int i = 0; i < issues.length && i < RECENT_COUNT; i++) {
             var item = issues[i];
             var row = new Adw.ActionRow () {
-                title = Markup.escape_text (item.student.full_name),
-                subtitle = "%s · %s".printf (meal_name (item.type), Markup.escape_text (item.student.group_name)),
                 activatable = false,
                 can_focus = false
             };
-            row.add_prefix (new Adw.Avatar (32, item.student.full_name, true));
+            if (item.student != null) {
+                row.title = Markup.escape_text (item.student.full_name);
+                row.subtitle = "%s · %s".printf (meal_name (item.type), Markup.escape_text (item.student.group_name));
+                row.add_prefix (new Adw.Avatar (32, item.student.full_name, true));
+            } else {
+                row.title = "Неизвестная карточка";
+                row.subtitle = "%s · номер %s".printf (Markup.escape_text (item.card.card_type), item.card.uid.to_string ());
+                var icon = new Gtk.Image.from_icon_name ("dialog-question-symbolic") {
+                    pixel_size = 32
+                };
+                icon.add_css_class ("warning");
+                row.add_prefix (icon);
+            }
             var time = new Gtk.Label (item.time.substring (0, 5));
             time.add_css_class ("numeric");
             time.add_css_class ("dim-label");
@@ -454,25 +487,36 @@ public class MainWindow : MainWindowUi {
         // сначала проверяем, что первым символом идёт цифра
         var text = card_entry.text.strip ();
         int64 uid = 0;
-        if (!text.get_char (0).isdigit () || !int64.try_parse (text, out uid, null, 10)) {
-            show_toast ("Номер карточки — целое число от 0 до %s".printf (int64.MAX.to_string ()));
+        if (!text.get_char (0).isdigit () || !int64.try_parse (text, out uid, null, 10) || uid > MAX_UID) {
+            show_toast ("Номер карточки — целое число от 0 до %d".printf (MAX_UID));
             return;
         }
         card_entry.text = "";
         simulate_card (uid);
     }
 
-    // Тестовый режим: приём пищи можно выбрать, не дожидаясь нужного времени
+    // Наибольший номер, который даёт считыватель: серия 255, номер 65535
+    private const int MAX_UID = 255 * 65536 + 65535;
+
+    // Тестовый режим: приём пищи можно выбрать, не дожидаясь нужного времени.
+    // Карточка — как от считывателя, но с типом «Тест».
     private void simulate_card (int64 uid) {
+        var card = new CardRead () {
+            raw = "",
+            card_type = "Тест",
+            code = "",
+            series = (int) (uid / 65536),
+            number = (int) (uid % 65536)
+        };
         switch (meal_choice.selected) {
         case 1:
-            show_student (uid, MealType.BREAKFAST);
+            show_student (card, MealType.BREAKFAST);
             break;
         case 2:
-            show_student (uid, MealType.LUNCH);
+            show_student (card, MealType.LUNCH);
             break;
         default:
-            show_student (uid);
+            show_student (card);
             break;
         }
     }
