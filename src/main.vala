@@ -19,6 +19,12 @@ public class App : Adw.Application {
     // Токен от сервера уведомлений, чтобы файловый менеджер открылся поверх окон
     private string? activation_token = null;
 
+    // Excel-файлы, открытые в других программах (см. check_open_files)
+    private FileMonitor? export_dir_monitor = null;
+    private uint open_check_timeout = 0;
+    private int[] warned_pids = {};  // о ком уже предупредили, пока держат файлы
+    private Adw.AlertDialog? open_dialog = null;
+
     public App () {
         Object (
             application_id: "org.gurov.Stolovaya",
@@ -100,7 +106,8 @@ public class App : Adw.Application {
         add_action (preferences);
         set_accels_for_action ("app.preferences", { "<Control>comma" });
 
-        // Выгрузка в полночь: проверяем дату каждые 30 секунд
+        // Выгрузка в полночь: проверяем дату каждые 30 секунд.
+        // Заодно — не открыл ли файл кто-то, кроме LibreOffice (его видно сразу).
         today = Database.format_date (new DateTime.now_local ());
         Timeout.add_seconds (30, () => {
             var day = Database.format_date (new DateTime.now_local ());
@@ -108,8 +115,10 @@ public class App : Adw.Application {
                 today = day;
                 run_export ();
             }
+            check_open_files ();
             return Source.CONTINUE;
         });
+        watch_export_directory ();
 
         // Выход из сеанса: не даём завершить сеанс, пока файл не записан
         query_end.connect (() => {
@@ -137,6 +146,7 @@ public class App : Adw.Application {
         // или компьютер выключен, когда были новые записи
         if (first_start) {
             run_export ();
+            check_open_files ();
         }
     }
 
@@ -181,63 +191,159 @@ public class App : Adw.Application {
         }
     }
 
-    // Пересобранный файл открыт в другой программе (например, LibreOffice):
-    // в ней старая версия, и если сохранить файл там, она запишется поверх
-    // новой. Сообщаем и предлагаем закрыть эту программу.
-    private void warn_if_open (GenericArray<string> files) {
-        var users = new GenericArray<FileUser> ();
-        var open_files = new string[0];
-        var programs = new string[0];
-        foreach (var file in files) {
-            var found = FileUsers.find (file);
-            if (found.length > 0) {
-                open_files += file;
-            }
-            foreach (var user in found) {
-                if (!(user.name in programs)) {
-                    programs += user.name;
-                }
-                // Одна программа может держать несколько файлов
-                var known = false;
-                foreach (var other in users) {
-                    known = known || other.pid == user.pid;
-                }
-                if (!known) {
-                    users.add (user);
-                }
-            }
-        }
-        if (users.length == 0 || active_window == null) {
+    // --- Excel-файл открыт в другой программе ---
+    //
+    // Программа (например, LibreOffice) держит файл, а выгрузка заменяет его
+    // новым: в программе остаётся старая версия, и если сохранить её, новые
+    // записи пропадут из файла. Предупреждаем, как только файл открыли,
+    // и ещё раз после выгрузки — тогда открытая копия уже устарела.
+
+    // LibreOffice, открывая файл, создаёт рядом «.~lock.имя#» — проверяем сразу.
+    // Файл он открывает чуть позже блокировки, поэтому проверка через секунду.
+    private void watch_export_directory () {
+        DirUtils.create_with_parents (exporter.directory, 0755);
+        try {
+            export_dir_monitor = File.new_for_path (exporter.directory).monitor_directory (FileMonitorFlags.NONE);
+        } catch (Error e) {
+            warning ("Слежение за папкой %s: %s", exporter.directory, e.message);
             return;
         }
+        export_dir_monitor.changed.connect ((file) => {
+            if (!file.get_basename ().has_prefix (".~lock.")) {
+                return;
+            }
+            if (open_check_timeout != 0) {
+                Source.remove (open_check_timeout);
+            }
+            open_check_timeout = Timeout.add_seconds (1, () => {
+                open_check_timeout = 0;
+                check_open_files ();
+                return Source.REMOVE;
+            });
+        });
+    }
 
-        var names = new string[0];
-        foreach (var file in open_files) {
-            names += "«%s»".printf (Path.get_basename (file));
+    // Excel-файлы в папке выгрузки
+    private string[] export_files () {
+        string[] result = {};
+        try {
+            var dir = Dir.open (exporter.directory);
+            string? name;
+            while ((name = dir.read_name ()) != null) {
+                if (name.has_suffix (".xlsx") && !name.has_prefix (".")) {
+                    result += Path.build_filename (exporter.directory, name);
+                }
+            }
+        } catch (FileError e) {
+            // Папки ещё нет — выгрузки не было
         }
-        // Имена программ — в именительном падеже: «в программе LibreOffice»
+        return result;
+    }
+
+    // Предупредить о программах, которые открыли файл, — один раз за открытие
+    private void check_open_files () {
+        var users = FileUsers.find_all (export_files ());
+
+        // Кто файлы закрыл — при следующем открытии предупредим снова
+        int[] still_open = {};
+        foreach (var pid in warned_pids) {
+            foreach (var user in users) {
+                if (user.pid == pid) {
+                    still_open += pid;
+                    break;
+                }
+            }
+        }
+        warned_pids = still_open;
+
+        var fresh = new GenericArray<FileUser> ();
+        foreach (var user in users) {
+            if (!(user.pid in warned_pids)) {
+                fresh.add (user);
+            }
+        }
+        if (fresh.length > 0 && open_dialog == null) {
+            show_open_dialog (fresh, false);
+        }
+    }
+
+    // После выгрузки: открытые копии уже устарели — предупредить в любом случае
+    private void warn_if_open (GenericArray<string> files) {
+        string[] paths = {};
+        foreach (var file in files) {
+            paths += file;
+        }
+        var users = FileUsers.find_all (paths);
+        if (users.length > 0) {
+            show_open_dialog (users, true);
+        }
+    }
+
+    // stale — файл уже заменён выгрузкой, в программе старая версия
+    private void show_open_dialog (GenericArray<FileUser> users, bool stale) {
+        var window = active_window;
+        if (window == null) {
+            return;
+        }
+        if (open_dialog != null) {
+            open_dialog.force_close ();
+        }
+
+        // Программы и файлы без повторов: одна программа может держать два файла
+        var programs = new string[0];
+        var files = new string[0];
+        var names = new string[0];
+        foreach (var user in users) {
+            if (!(user.pid in warned_pids)) {
+                warned_pids += user.pid;
+            }
+            if (!(user.name in programs)) {
+                programs += user.name;
+            }
+            if (!(user.path in files)) {
+                files += user.path;
+                names += "«%s»".printf (Path.get_basename (user.path));
+            }
+        }
         var program = string.joinv (", ", programs);
-        var where = (programs.length == 1 ? "в программе " : "в программах ") + program;
-        var body = open_files.length == 1
-            ? "Файл %s обновлён, а %s открыта его старая версия. Если сохранить файл там, новые записи из него пропадут.".printf (names[0], where)
-            : "Файлы %s обновлены, а %s открыты их старые версии. Если сохранить файлы там, новые записи из них пропадут.".printf (string.joinv (", ", names), where);
-        body += " В базе «Столовой» они останутся.\n\n"
+        var several = programs.length > 1;
+        var one_file = files.length == 1;
+        // Имена программ — в именительном падеже: «в программе LibreOffice»
+        var where = (several ? "в программах " : "в программе ") + program;
+
+        string body;
+        if (stale) {
+            body = one_file
+                ? "Файл %s обновлён, а %s открыта его старая версия. Если сохранить файл там, новые записи из него пропадут.".printf (names[0], where)
+                : "Файлы %s обновлены, а %s открыты их старые версии. Если сохранить файлы там, новые записи из них пропадут.".printf (string.joinv (", ", names), where);
+        } else {
+            body = (one_file ? "Файл %s открыт %s." : "Файлы %s открыты %s.").printf (string.joinv (", ", names), where)
+                + " «Столовая» пересобирает Excel-файлы в полночь, при закрытии и по команде «Обновить Excel-файл»:"
+                + " открытая копия при этом не обновится, а если сохранить её, новые записи пропадут из файла.";
+        }
+        body += " В базе «Столовой» записи останутся.\n\n"
             + "При закрытии программы закроются все её окна, несохранённые изменения в них будут потеряны.";
 
-        var dialog = new Adw.AlertDialog (
-            open_files.length == 1 ? "Excel-файл открыт в другой программе" : "Excel-файлы открыты в другой программе",
-            body);
-        dialog.add_response ("keep", "Не закрывать");
-        dialog.add_response ("close", programs.length == 1 ? "Закрыть " + program : "Закрыть программы");
-        dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
-        dialog.default_response = "keep";
-        dialog.close_response = "keep";
-        dialog.response.connect ((response) => {
+        var heading = one_file ? "Excel-файл открыт в другой программе" : "Excel-файлы открыты в другой программе";
+        open_dialog = new Adw.AlertDialog (heading, body);
+        open_dialog.add_response ("keep", "Не закрывать");
+        open_dialog.add_response ("close", several ? "Закрыть программы" : "Закрыть " + program);
+        open_dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
+        open_dialog.default_response = "keep";
+        open_dialog.close_response = "keep";
+        open_dialog.response.connect ((response) => {
             if (response == "close") {
-                close_programs (users, open_files, program, programs.length > 1);
+                close_programs (users, files, program, several);
             }
         });
-        dialog.present (active_window);
+        open_dialog.closed.connect (() => open_dialog = null);
+        open_dialog.present (window);
+
+        // Окно «Столовой», скорее всего, под LibreOffice — окно предупреждения не видно
+        if (!window.is_active) {
+            send_desktop_notification (heading, "%s %s. Подробности — в окне «Столовой».".printf (
+                one_file ? "Открыт" : "Открыты", where), "dialog-warning-symbolic");
+        }
     }
 
     // Закрыть программы сигналом и подождать до 5 секунд, пока они отпустят файлы
@@ -248,10 +354,7 @@ public class App : Adw.Application {
         int waited = 0;
         Timeout.add (250, () => {
             waited += 250;
-            var still_open = false;
-            foreach (var file in files) {
-                still_open = still_open || FileUsers.find (file).length > 0;
-            }
+            var still_open = FileUsers.find_all (files).length > 0;
             if (still_open && waited < 5000) {
                 return Source.CONTINUE;
             }

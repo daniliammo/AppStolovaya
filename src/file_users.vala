@@ -9,18 +9,32 @@
 public class FileUser {
     public int pid;
     public string name;  // для человека: «LibreOffice», иначе имя процесса
+    public string path;  // какой из искомых файлов держит
 }
 
 namespace FileUsers {
     public GenericArray<FileUser> find (string path) {
+        return find_all ({ path });
+    }
+
+    // Все, кто держит какой-нибудь из файлов, за один проход по /proc
+    // (около 10 мс). Программа, держащая два файла, — два элемента.
+    public GenericArray<FileUser> find_all (string[] paths) {
         var result = new GenericArray<FileUser> ();
-        // В /proc пути без символических ссылок: ~/Документы может быть ссылкой
-        var dir = Posix.realpath (Path.get_dirname (path));
-        if (dir == null) {
+        // Как файл выглядит в /proc → путь, как его передали. В /proc пути
+        // без символических ссылок: ~/Документы может быть ссылкой.
+        var targets = new HashTable<string, string> (str_hash, str_equal);
+        foreach (var path in paths) {
+            var dir = Posix.realpath (Path.get_dirname (path));
+            if (dir != null) {
+                var real_path = Path.build_filename (dir, Path.get_basename (path));
+                targets[real_path] = path;
+                targets[real_path + " (deleted)"] = path;
+            }
+        }
+        if (targets.size () == 0) {
             return result;
         }
-        var real_path = Path.build_filename (dir, Path.get_basename (path));
-        var replaced = real_path + " (deleted)";
 
         Dir proc;
         try {
@@ -35,8 +49,8 @@ namespace FileUsers {
             if (!int.try_parse (entry, out pid) || pid == self) {
                 continue;
             }
-            if (holds (pid, real_path, replaced)) {
-                result.add (new FileUser () { pid = pid, name = program_name (pid) });
+            foreach (var path in held_files (pid, targets)) {
+                result.add (new FileUser () { pid = pid, name = program_name (pid), path = path });
             }
         }
         return result;
@@ -58,26 +72,28 @@ namespace FileUsers {
         }
     }
 
-    private bool holds (int pid, string path, string replaced) {
+    // Какие из искомых файлов процесс держит открытыми, без повторов
+    private string[] held_files (int pid, HashTable<string, string> targets) {
+        string[] result = {};
         var fd_dir = "/proc/%d/fd".printf (pid);
         Dir fds;
         try {
             fds = Dir.open (fd_dir);
         } catch (FileError e) {
-            return false;  // процесс другого пользователя или уже завершился
+            return result;  // процесс другого пользователя или уже завершился
         }
         string? fd;
         while ((fd = fds.read_name ()) != null) {
             try {
-                var target = FileUtils.read_link (Path.build_filename (fd_dir, fd));
-                if (target == path || target == replaced) {
-                    return true;
+                var path = targets[FileUtils.read_link (Path.build_filename (fd_dir, fd))];
+                if (path != null && !(path in result)) {
+                    result += path;
                 }
             } catch (FileError e) {
                 // Дескриптор успели закрыть
             }
         }
-        return false;
+        return result;
     }
 
     private string program_name (int pid) {

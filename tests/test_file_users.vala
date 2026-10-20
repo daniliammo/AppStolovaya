@@ -75,6 +75,26 @@ void test_symlinked_directory () throws Error {
     DirUtils.remove (real_dir);
 }
 
+// Один проход по нескольким файлам: кто какой держит
+void test_find_all () throws Error {
+    var held = Path.build_filename (tmp_dir, "столовая_2025-2026.xlsx");
+    var free = Path.build_filename (tmp_dir, "столовая_2026-2027.xlsx");
+    FileUtils.set_contents (held, "");
+    FileUtils.set_contents (free, "");
+
+    var pid = hold_open (held);
+    var users = FileUsers.find_all ({ free, held });
+    assert_cmpint (users.length, CompareOperator.EQ, 1);
+    assert_cmpstr (users[0].path, CompareOperator.EQ, held);
+
+    FileUsers.terminate (users[0]);
+    int status;
+    Posix.waitpid ((Posix.pid_t) pid, out status, 0);
+    Process.close_pid (pid);
+    FileUtils.remove (held);
+    FileUtils.remove (free);
+}
+
 void test_missing_directory () {
     assert_cmpint (FileUsers.find ("/нет/такой/папки/столовая.xlsx").length, CompareOperator.EQ, 0);
 }
@@ -88,6 +108,7 @@ int main (string[] args) {
     }
     Test.add_func ("/file-users/find-and-terminate", () => wrap (test_find_and_terminate));
     Test.add_func ("/file-users/symlinked-directory", () => wrap (test_symlinked_directory));
+    Test.add_func ("/file-users/find-all", () => wrap (test_find_all));
     Test.add_func ("/file-users/missing-directory", test_missing_directory);
     var result = Test.run ();
     DirUtils.remove (tmp_dir);
