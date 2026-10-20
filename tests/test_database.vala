@@ -6,7 +6,7 @@ DateTime at (int day, int hour, int minute) {
 
 void test_schema () throws Error {
     var db = new Database (":memory:");
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 5);
 }
 
 void test_students () throws Error {
@@ -233,16 +233,65 @@ void test_migrate_from_2 () throws Error {
     old = null;
 
     var db = new Database (path);
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 5);
     var years = db.changed_school_years ();
     assert_cmpint (years.length, CompareOperator.EQ, 1);
     assert_cmpint (years[0], CompareOperator.EQ, 2026);
+
+    // ФИО и группа в старых записях — нынешние: изменёнными не показываются
+    var records = db.day_records (at (15, 0, 0));
+    assert_cmpstr (records[0].issued_name, CompareOperator.EQ, "Иванов Иван");
+    assert_cmpstr (records[0].issued_group, CompareOperator.EQ, "5А");
+    assert_null (records[0].change_note ());
     db = null;
 
     foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
         FileUtils.remove (Path.build_filename (dir, name));
     }
     DirUtils.remove (dir);
+}
+
+// Ученика переименовали и перевели после выдачи: видно и прежнее, и нынешнее,
+// а годы, где он получал питание, встают в очередь на пересборку
+void test_student_renamed () throws Error {
+    var db = new Database (":memory:");
+    var id = db.add_student ("Иванова Мария", "5А", 1);
+    db.add_student ("Петров Пётр", "5Б", 2);
+    db.record_meal (id, MealType.LUNCH, at (15, 12, 0));
+    db.record_meal (id, MealType.LUNCH, new DateTime.local (2025, 10, 1, 12, 0, 0));
+    var now = new DateTime.now_local ();
+    db.mark_exported (now, "/tmp/a.xlsx", now, db.last_meal_id ());
+    assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
+
+    var student = db.find_student_by_card (1);
+    student.full_name = "Смирнова Мария";
+    student.group_name = "6А";
+    db.update_student (student);
+
+    var record = db.day_records (at (15, 0, 0))[0];
+    assert_cmpstr (record.issued_name, CompareOperator.EQ, "Иванова Мария");
+    assert_cmpstr (record.issued_group, CompareOperator.EQ, "5А");
+    assert_cmpstr (record.student.full_name, CompareOperator.EQ, "Смирнова Мария");
+    assert_cmpstr (record.student.group_name, CompareOperator.EQ, "6А");
+    assert_true (record.name_changed && record.group_changed);
+    var note = record.change_note ();
+    assert_true ("«Иванова Мария»" in note && "«Смирнова Мария»" in note);
+    assert_true ("«5А»" in note && "«6А»" in note);
+
+    // Новая выдача — уже с новыми ФИО и группой
+    db.record_meal (id, MealType.LUNCH, at (16, 12, 0));
+    assert_null (db.day_records (at (16, 0, 0))[0].change_note ());
+
+    // Пересобрать оба года, где ученик получал питание
+    var years = db.changed_school_years ();
+    assert_cmpint (years.length, CompareOperator.EQ, 2);
+    assert_true (2025 in years && 2026 in years);
+    db.mark_exported (now, "/tmp/a.xlsx", now, db.last_meal_id (), db.last_queued_id ());
+    assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
+
+    // Сохранили без изменений (как кнопка «Записать» в DB Browser) — не в очередь
+    db.update_student (db.find_student_by_card (1));
+    assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
 }
 
 void test_reopen_file () throws Error {
@@ -254,7 +303,7 @@ void test_reopen_file () throws Error {
     db = null;  // закрыть
 
     db = new Database (path);  // миграция не должна повториться
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 5);
     assert_nonnull (db.find_student_by_card (7));
     db = null;
 
@@ -268,6 +317,7 @@ void test_reopen_file () throws Error {
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/database/schema", () => wrap (test_schema));
+    Test.add_func ("/database/student-renamed", () => wrap (test_student_renamed));
     Test.add_func ("/database/students", () => wrap (test_students));
     Test.add_func ("/database/student-constraints", () => wrap (test_student_constraints));
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));

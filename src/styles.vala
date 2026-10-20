@@ -81,6 +81,17 @@ namespace Styles {
         }
     """;
 
+    // Разметка Pango для ФИО или группы, которые поменяли после выдачи:
+    // прежнее — зачёркнуто и бледно, за ним нынешнее. Не меняли — просто текст.
+    // Почему так — в подсказке (DayRecord.change_note).
+    public string changed_markup (string then, string now) {
+        if (then == now) {
+            return Markup.escape_text (now);
+        }
+        return "<span strikethrough=\"true\" alpha=\"50%%\">%s</span> %s".printf (
+            Markup.escape_text (then), Markup.escape_text (now));
+    }
+
     public void load () {
         var provider = new Gtk.CssProvider ();
         provider.load_from_string (CSS);

@@ -125,12 +125,13 @@ public abstract class HistoryDialogUi : Adw.Dialog {
         return stack;
     }
 
-    // Строка ученика: ФИО, группа и справа время завтрака и обеда
+    // Строка ученика: ФИО, группа и справа время завтрака и обеда.
+    // ФИО и группу могли поменять после выдачи — тогда видно и прежние.
     protected static Adw.ActionRow build_record_row (DayRecord record) {
         var row = new Adw.ActionRow () {
-            use_markup = false,  // ФИО как есть, без разметки
-            title = record.student.full_name,
-            subtitle = record.student.group_name
+            title = Styles.changed_markup (record.issued_name, record.student.full_name),
+            subtitle = Styles.changed_markup (record.issued_group, record.student.group_name),
+            tooltip_text = record.change_note ()
         };
         row.add_suffix (build_meal_cell ("Завтрак", record.breakfast_at));
         row.add_suffix (build_meal_cell ("Обед", record.lunch_at));

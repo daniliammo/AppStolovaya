@@ -30,9 +30,39 @@ public class Student {
 
 // Кто и когда получил питание в выбранный день (для истории и выгрузки)
 public class DayRecord {
-    public Student student;
+    public Student student;       // каким ученик записан в базе сейчас
     public string? breakfast_at;  // 'HH:MM:SS' или null, если не получал
     public string? lunch_at;
+    // ФИО и группа в день выдачи — их могли поменять после
+    public string issued_name;
+    public string issued_group;
+
+    public bool name_changed {
+        get { return issued_name != student.full_name; }
+    }
+
+    public bool group_changed {
+        get { return issued_group != student.group_name; }
+    }
+
+    // Почему ФИО или группа показаны дважды (подсказка в окне, примечание
+    // в Excel); null — ничего не меняли
+    public string? change_note () {
+        string[] lines = {};
+        if (name_changed) {
+            lines += "ФИО изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
+                issued_name, student.full_name);
+        }
+        if (group_changed) {
+            lines += "Группу изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
+                issued_group, student.group_name);
+        }
+        if (lines.length == 0) {
+            return null;
+        }
+        lines += "Зачёркнуто — как было в день выдачи.";
+        return string.joinv ("\n", lines);
+    }
 }
 
 // Приложили карточку, которой нет в базе: всё, что прочитал считыватель
@@ -110,6 +140,32 @@ public class Database {
             scanned_at  TEXT    NOT NULL
         );
         CREATE INDEX unknown_cards_by_date ON unknown_cards (scan_date);
+        """,
+        // 5: ФИО и группа ученика в день выдачи: если их потом поменяют,
+        // в истории и выгрузке видно и прежние, и нынешние. Каким ученик
+        // был записан в старых записях, уже не узнать — берём нынешнее.
+        //
+        // Смена ФИО или группы ставит в очередь учебные годы, где ученик
+        // получал питание, — их файлы пересоберутся. Триггер срабатывает
+        // и когда базу правят другой программой (DB Browser for SQLite).
+        """
+        ALTER TABLE meals ADD COLUMN full_name TEXT;
+        ALTER TABLE meals ADD COLUMN group_name TEXT;
+        UPDATE meals SET full_name  = (SELECT full_name  FROM students WHERE id = student_id),
+                         group_name = (SELECT group_name FROM students WHERE id = student_id);
+
+        CREATE TABLE export_queue (
+            id          INTEGER PRIMARY KEY,
+            school_year INTEGER NOT NULL
+        );
+        CREATE TRIGGER student_renamed AFTER UPDATE OF full_name, group_name ON students
+        WHEN OLD.full_name IS NOT NEW.full_name OR OLD.group_name IS NOT NEW.group_name
+        BEGIN
+            INSERT INTO export_queue (school_year)
+            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
+                          - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
+            FROM meals WHERE student_id = NEW.id;
+        END;
         """
     };
 
@@ -130,6 +186,7 @@ public class Database {
         exec ("PRAGMA journal_mode = WAL");
         migrate ();
     }
+
 
     public int schema_version () throws DatabaseError {
         var stmt = prepare ("PRAGMA user_version");
@@ -179,9 +236,12 @@ public class Database {
 
     // Списать завтрак или обед. Возвращает false, если в этот день
     // ученик его уже получил (второй раз не списывается).
+    // ФИО и группа запоминаются такими, какие они сейчас.
     public bool record_meal (int64 student_id, MealType type, DateTime when) throws DatabaseError {
         var stmt = prepare ("""
-            INSERT INTO meals (student_id, meal_date, meal_type, issued_at) VALUES (?, ?, ?, ?)
+            INSERT INTO meals (student_id, meal_date, meal_type, issued_at, full_name, group_name)
+            VALUES (?1, ?2, ?3, ?4, (SELECT full_name  FROM students WHERE id = ?1),
+                                    (SELECT group_name FROM students WHERE id = ?1))
             ON CONFLICT (student_id, meal_date, meal_type) DO NOTHING
         """);
         stmt.bind_int64 (1, student_id);
@@ -220,16 +280,22 @@ public class Database {
         };
     }
 
-    // Все, кто получал питание в этот день, по группам и ФИО
+    // Все, кто получал питание в этот день, по группам и ФИО того дня.
+    // Если в один день ФИО или группа записаны по-разному (поменяли между
+    // завтраком и обедом) — по последней выдаче.
     public GenericArray<DayRecord> day_records (DateTime day) throws DatabaseError {
         var stmt = prepare ("""
             SELECT s.id, s.card_uid, s.full_name, s.group_name,
                    max(m.issued_at) FILTER (WHERE m.meal_type = 'breakfast'),
-                   max(m.issued_at) FILTER (WHERE m.meal_type = 'lunch')
+                   max(m.issued_at) FILTER (WHERE m.meal_type = 'lunch'),
+                   (SELECT coalesce (full_name, s.full_name) FROM meals
+                    WHERE student_id = s.id AND meal_date = ?1 ORDER BY id DESC LIMIT 1) AS issued_name,
+                   (SELECT coalesce (group_name, s.group_name) FROM meals
+                    WHERE student_id = s.id AND meal_date = ?1 ORDER BY id DESC LIMIT 1) AS issued_group
             FROM meals AS m JOIN students AS s ON s.id = m.student_id
-            WHERE m.meal_date = ?
+            WHERE m.meal_date = ?1
             GROUP BY s.id
-            ORDER BY s.group_name, s.full_name
+            ORDER BY issued_group, issued_name
         """);
         stmt.bind_text (1, format_date (day));
         var result = new GenericArray<DayRecord> ();
@@ -237,7 +303,9 @@ public class Database {
             result.add (new DayRecord () {
                 student = read_student (stmt, 0),
                 breakfast_at = nullable_text (stmt, 4),
-                lunch_at = nullable_text (stmt, 5)
+                lunch_at = nullable_text (stmt, 5),
+                issued_name = stmt.column_text (6),
+                issued_group = stmt.column_text (7)
             });
         }
         return result;
@@ -309,9 +377,25 @@ public class Database {
     }
 
     // Учебные годы (по году начала), в которых после последней выгрузки появились
-    // новые записи (если выгрузок не было — все). Их файлы нужно пересобрать.
+    // новые записи (если выгрузок не было — все) или ученику поменяли ФИО или
+    // группу (очередь export_queue). Их файлы нужно пересобрать.
     public int[] changed_school_years () throws DatabaseError {
-        return school_years ("WHERE id > coalesce ((SELECT max (last_meal_id) FROM exports), 0)");
+        var years = school_years ("WHERE id > coalesce ((SELECT max (last_meal_id) FROM exports), 0)");
+        var stmt = prepare ("SELECT DISTINCT school_year FROM export_queue");
+        while (step_row (stmt)) {
+            var year = stmt.column_int (0);
+            if (!(year in years)) {
+                years += year;
+            }
+        }
+        return years;
+    }
+
+    // Номер последней записи очереди пересборки (0 — очередь пуста)
+    public int64 last_queued_id () throws DatabaseError {
+        var stmt = prepare ("SELECT coalesce (max (id), 0) FROM export_queue");
+        step_row (stmt);
+        return stmt.column_int64 (0);
     }
 
     // Все учебные годы, в которых была выдача
@@ -327,9 +411,15 @@ public class Database {
         return stmt.column_int64 (0);
     }
 
-    // last_meal_id — до какой записи журнала включительно выгружено
+    // last_meal_id — до какой записи журнала включительно выгружено,
+    // last_queued_id — до какой записи очереди пересборки (они удаляются;
+    // что добавили в очередь во время выгрузки, остаётся до следующей)
     public void mark_exported (DateTime day, string file_path, DateTime done_at,
-                               int64 last_meal_id) throws DatabaseError {
+                               int64 last_meal_id, int64 last_queued_id = 0) throws DatabaseError {
+        var dequeue = prepare ("DELETE FROM export_queue WHERE id <= ?");
+        dequeue.bind_int64 (1, last_queued_id);
+        step_done (dequeue);
+
         var stmt = prepare ("""
             INSERT INTO exports (export_date, file_path, done_at, last_meal_id) VALUES (?, ?, ?, ?)
             ON CONFLICT (export_date) DO UPDATE SET file_path = excluded.file_path,

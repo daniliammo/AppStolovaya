@@ -25,9 +25,9 @@ public class MainWindow : MainWindowUi {
     // Одна строка списка «Последние выдачи»: выдача или неизвестная карточка
     private class Issue {
         public string time;  // 'HH:MM:SS'
-        public Student? student;  // null — карточки нет в базе
+        public DayRecord? record;  // кто получил; null — карточки нет в базе
         public MealType type;
-        public UnknownCard? card;  // неизвестная карточка (когда student — null)
+        public UnknownCard? card;  // неизвестная карточка (когда record — null)
     }
 
     // Приложили карточку (настоящую или в тестовом режиме)
@@ -394,14 +394,14 @@ public class MainWindow : MainWindowUi {
         var issues = new GenericArray<Issue> ();
         foreach (var record in records) {
             if (record.breakfast_at != null) {
-                issues.add (new Issue () { time = record.breakfast_at, student = record.student, type = MealType.BREAKFAST });
+                issues.add (new Issue () { time = record.breakfast_at, record = record, type = MealType.BREAKFAST });
             }
             if (record.lunch_at != null) {
-                issues.add (new Issue () { time = record.lunch_at, student = record.student, type = MealType.LUNCH });
+                issues.add (new Issue () { time = record.lunch_at, record = record, type = MealType.LUNCH });
             }
         }
         foreach (var card in unknown) {
-            issues.add (new Issue () { time = card.scanned_at, student = null, card = card });
+            issues.add (new Issue () { time = card.scanned_at, record = null, card = card });
         }
         issues.sort ((a, b) => strcmp (b.time, a.time));
 
@@ -416,10 +416,14 @@ public class MainWindow : MainWindowUi {
                 activatable = false,
                 can_focus = false
             };
-            if (item.student != null) {
-                row.title = Markup.escape_text (item.student.full_name);
-                row.subtitle = "%s · %s".printf (meal_name (item.type), Markup.escape_text (item.student.group_name));
-                row.add_prefix (new Adw.Avatar (32, item.student.full_name, true));
+            if (item.record != null) {
+                // ФИО и группу могли поменять после выдачи — тогда видно и прежние
+                var record = item.record;
+                row.title = Styles.changed_markup (record.issued_name, record.student.full_name);
+                row.subtitle = "%s · %s".printf (meal_name (item.type),
+                    Styles.changed_markup (record.issued_group, record.student.group_name));
+                row.tooltip_text = record.change_note ();
+                row.add_prefix (new Adw.Avatar (32, record.student.full_name, true));
             } else {
                 row.title = "Неизвестная карточка";
                 row.subtitle = "%s · номер %s".printf (Markup.escape_text (item.card.card_type), item.card.uid.to_string ());

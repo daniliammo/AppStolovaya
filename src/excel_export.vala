@@ -44,6 +44,7 @@ public class ExcelExporter {
     public GenericArray<string> export_changed (int with_school_year = 0) throws Error {
         // Запомнить до выгрузки: всё, что новее, попадёт в следующую
         var last_meal = database.last_meal_id ();
+        var last_queued = database.last_queued_id ();
         var years = database.changed_school_years ();
         foreach (var year in database.meal_school_years ()) {
             if (!(year in years) && !FileUtils.test (file_for_school_year (year), FileTest.EXISTS)) {
@@ -62,7 +63,7 @@ public class ExcelExporter {
         // записался, его год иначе больше не считался бы изменённым
         if (written.length > 0) {
             var now = new DateTime.now_local ();
-            database.mark_exported (now, written[written.length - 1], now, last_meal);
+            database.mark_exported (now, written[written.length - 1], now, last_meal, last_queued);
         }
         return written;
     }
@@ -137,6 +138,11 @@ public class ExcelExporter {
         unowned var centered = workbook.add_format ();
         centered.set_align (Xlsx.Align.CENTER);
 
+        // ФИО или группа, которые поменяли после выдачи: как было в тот день
+        unowned var struck = workbook.add_format ();
+        struck.set_font_strikeout ();
+        struck.set_font_color (0x808080);
+
         unowned var note = workbook.add_format ();
         note.set_italic ();
         note.set_font_color (0xC00000);
@@ -160,7 +166,7 @@ public class ExcelExporter {
             var records = database.day_records (date);
 
             unowned var sheet = add_sheet (workbook, title);
-            var counts = write_day_sheet (sheet, title, records, header, total, centered, note);
+            var counts = write_day_sheet (sheet, title, records, header, total, centered, note, struck);
             last_sheet = sheet;
 
             summary.write_string (i + 2, 0, title);
@@ -183,9 +189,16 @@ public class ExcelExporter {
     private MealCounts write_day_sheet (Xlsx.Worksheet sheet, string date,
                                         GenericArray<DayRecord> records,
                                         Xlsx.Format header, Xlsx.Format total,
-                                        Xlsx.Format centered, Xlsx.Format note) {
-        sheet.set_column (0, 0, 36);
-        sheet.set_column (1, 1, 10);
+                                        Xlsx.Format centered, Xlsx.Format note, Xlsx.Format struck) {
+        // Прежнее и нынешнее ФИО вместе в 36 знаков не влезают — ширина
+        // по самой длинной строке
+        double name_width = 36, group_width = 10;
+        foreach (var record in records) {
+            name_width = double.max (name_width, shown_width (record.issued_name, record.student.full_name));
+            group_width = double.max (group_width, shown_width (record.issued_group, record.student.group_name));
+        }
+        sheet.set_column (0, 0, name_width);
+        sheet.set_column (1, 1, group_width);
         sheet.set_column (2, 2, 12, centered);
         sheet.set_column (3, 4, 10, centered);
         sheet.fit_to_pages (1, 0);  // печать: все столбцы на одной странице по ширине
@@ -195,13 +208,14 @@ public class ExcelExporter {
         MealCounts counts = { 0, 0 };
         uint32 row = 2;
         foreach (var record in records) {
-            write_row (sheet, row++, {
-                record.student.full_name,
-                record.student.group_name,
-                date,
-                short_time (record.breakfast_at),
-                short_time (record.lunch_at)
-            });
+            write_row (sheet, row, { "", "", date, short_time (record.breakfast_at), short_time (record.lunch_at) });
+            write_changed (sheet, row, 0, record.issued_name, record.student.full_name, struck);
+            write_changed (sheet, row, 1, record.issued_group, record.student.group_name, struck);
+            var change = record.change_note ();
+            if (change != null) {
+                sheet.write_comment (row, 0, change, Xlsx.CommentOptions () { width = 320, height = 90 });
+            }
+            row++;
             if (record.breakfast_at != null) {
                 counts.breakfasts++;
             }
@@ -226,6 +240,28 @@ public class ExcelExporter {
         sheet.merge_range (0, 0, 0, last_col, NOTE, note);
         sheet.set_row (0, 15 * lines + 3);
         sheet.freeze_panes (2, 0);
+    }
+
+    // Ширина столбца (в знаках) под то, что пишет write_changed, с запасом:
+    // кириллица шире латиницы, по которой Excel считает знаки
+    private static double shown_width (string then, string now) {
+        var length = then == now ? now.char_count () : then.char_count () + 1 + now.char_count ();
+        return length * 1.1 + 2;
+    }
+
+    // Нынешнее значение, а если в день выдачи было другое — перед ним
+    // прежнее, зачёркнутое серым
+    private static void write_changed (Xlsx.Worksheet sheet, uint32 row, uint16 col,
+                                       string then, string now, Xlsx.Format struck) {
+        if (then == now) {
+            sheet.write_string (row, col, now);
+            return;
+        }
+        var rest = " " + now;
+        var old_part = Xlsx.RichString () { format = struck, text = then };
+        var new_part = Xlsx.RichString () { format = null, text = rest };
+        Xlsx.RichString*[] parts = { &old_part, &new_part, null };
+        sheet.write_rich_string (row, col, parts);
     }
 
     private static unowned Xlsx.Worksheet add_sheet (Xlsx.Workbook workbook, string name) throws ExportError {

@@ -74,6 +74,29 @@ void test_export_partial_failure () throws Error {
     assert_xlsx (blocker);
 }
 
+// Ученика переименовали — его годы пересобираются, хотя новых выдач нет;
+// в файле прежнее ФИО зачёркнуто, а у ячейки примечание
+void test_export_after_rename () throws Error {
+    var db = sample_database ();
+    var exporter = new ExcelExporter (db, Path.build_filename (tmp_dir, "Переименование"));
+    assert_cmpint (exporter.export_changed ().length, CompareOperator.EQ, 2);
+
+    var student = db.find_student_by_card (2);  // обедал только в 2025–2026
+    student.full_name = "Борисов Богдан";
+    db.update_student (student);
+    var files = exporter.export_changed ();
+    assert_cmpint (files.length, CompareOperator.EQ, 1);
+    assert_true (files[0].has_suffix ("столовая_2025-2026.xlsx"));
+    assert_xlsx (files[0]);
+    assert_cmpint (exporter.export_changed ().length, CompareOperator.EQ, 0);
+
+    // В .xlsx (zip) есть примечание с прежним и нынешним ФИО
+    string comments;
+    Process.spawn_sync (null, { "unzip", "-p", files[0], "xl/comments1.xml" }, null,
+        SpawnFlags.SEARCH_PATH, null, out comments);
+    assert_true ("Борисов Борис" in comments && "Борисов Богдан" in comments);
+}
+
 void test_export_year_bad_directory () throws Error {
     var db = sample_database ();
     var exporter = new ExcelExporter (db, "/proc/нет/Столовая");
@@ -94,10 +117,11 @@ int main (string[] args) {
     }
     Test.add_func ("/excel/export-changed", () => wrap (test_export_changed));
     Test.add_func ("/excel/partial-failure", () => wrap (test_export_partial_failure));
+    Test.add_func ("/excel/after-rename", () => wrap (test_export_after_rename));
     Test.add_func ("/excel/bad-directory", () => wrap (test_export_year_bad_directory));
     var result = Test.run ();
 
-    foreach (var name in new string[] { "Столовая", "Сбой" }) {
+    foreach (var name in new string[] { "Столовая", "Сбой", "Переименование" }) {
         var dir = Path.build_filename (tmp_dir, name);
         foreach (var year in new int[] { 2023, 2024, 2025 }) {
             FileUtils.remove (Path.build_filename (dir, "столовая_%d-%d.xlsx".printf (year, year + 1)));

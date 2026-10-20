@@ -26,6 +26,21 @@ namespace Xlsx {
         THIN
     }
 
+    // Кусок строки со своим форматом (для write_rich_string)
+    [CCode (cname = "lxw_rich_string_tuple", has_type_id = false)]
+    public struct RichString {
+        public unowned Format? format;  // null — формат ячейки
+        [CCode (cname = "string")]
+        public unowned string text;
+    }
+
+    // Размер примечания в пикселях (остальные поля — по умолчанию, нулями)
+    [CCode (cname = "lxw_comment_options", has_type_id = false)]
+    public struct CommentOptions {
+        public uint16 width;
+        public uint16 height;
+    }
+
     // Книга освобождается внутри workbook_close (), поэтому free_function пустая:
     // close () нужно вызвать обязательно, ровно один раз.
     [Compact]
@@ -50,6 +65,16 @@ namespace Xlsx {
     public class Worksheet {
         [CCode (cname = "worksheet_write_string")]
         public Error write_string (uint32 row, uint16 col, string text, Format? format = null);
+
+        // Строка из кусков с разным форматом; parts заканчивается null
+        [CCode (cname = "worksheet_write_rich_string")]
+        public Error write_rich_string (uint32 row, uint16 col,
+                                        [CCode (array_length = false, array_null_terminated = true)] RichString*[] parts,
+                                        Format? format = null);
+
+        // Примечание к ячейке: всплывает при наведении
+        [CCode (cname = "worksheet_write_comment_opt")]
+        public Error write_comment (uint32 row, uint16 col, string text, CommentOptions? options = null);
 
         [CCode (cname = "worksheet_write_number")]
         public Error write_number (uint32 row, uint16 col, double number, Format? format = null);
@@ -83,6 +108,9 @@ namespace Xlsx {
     public class Format {
         [CCode (cname = "format_set_bold")]
         public void set_bold ();
+
+        [CCode (cname = "format_set_font_strikeout")]
+        public void set_font_strikeout ();
 
         [CCode (cname = "format_set_italic")]
         public void set_italic ();
