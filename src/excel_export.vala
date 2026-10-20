@@ -41,17 +41,22 @@ public class ExcelExporter {
     // записи, и (если with_school_year != 0) файл этого года в любом случае.
     // Возвращает пути записанных файлов; пусто — выгружать было нечего.
     public GenericArray<string> export_changed (int with_school_year = 0) throws Error {
+        // Запомнить до выгрузки: всё, что новее, попадёт в следующую
+        var last_meal = database.last_meal_id ();
         var years = database.changed_school_years ();
         if (with_school_year != 0 && !(with_school_year in years)) {
             years += with_school_year;
         }
 
-        var now = new DateTime.now_local ();
         var written = new GenericArray<string> ();
         foreach (var year in years) {
-            var path = export_school_year (year);
-            database.mark_exported (now, path, now);
-            written.add (path);
+            written.add (export_school_year (year));
+        }
+        // Отметка — только когда записаны все файлы: если второй файл не
+        // записался, его год иначе больше не считался бы изменённым
+        if (written.length > 0) {
+            var now = new DateTime.now_local ();
+            database.mark_exported (now, written[written.length - 1], now, last_meal);
         }
         return written;
     }

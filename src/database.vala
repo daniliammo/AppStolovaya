@@ -73,6 +73,12 @@ public class Database {
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        """,
+        // 3: что уже выгружено — по номеру последней записи журнала, а не по
+        // времени: время зависит от часов компьютера, а их могут перевести назад.
+        // У прежних выгрузок номера нет — один раз пересоберутся все годы.
+        """
+        ALTER TABLE exports ADD COLUMN last_meal_id INTEGER;
         """
     };
 
@@ -233,30 +239,30 @@ public class Database {
 
     // Учебные годы (по году начала), в которых после последней выгрузки появились
     // новые записи (если выгрузок не было — все). Их файлы нужно пересобрать.
-    // Формула та же, что в school_year_of (): январь–август — год начала на 1 меньше.
     public int[] changed_school_years () throws DatabaseError {
-        var stmt = prepare ("""
-            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
-                          - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
-            FROM meals
-            WHERE meal_date || ' ' || issued_at >= coalesce ((SELECT max (done_at) FROM exports), '')
-            ORDER BY 1
-        """);
-        int[] result = {};
-        while (step_row (stmt)) {
-            result += stmt.column_int (0);
-        }
-        return result;
+        return school_years ("WHERE id > coalesce ((SELECT max (last_meal_id) FROM exports), 0)");
     }
 
-    public void mark_exported (DateTime day, string file_path, DateTime done_at) throws DatabaseError {
+    // Номер последней записи журнала (0 — записей нет). Новые записи
+    // получают номера больше, поэтому по нему видно, что уже выгружено.
+    public int64 last_meal_id () throws DatabaseError {
+        var stmt = prepare ("SELECT coalesce (max (id), 0) FROM meals");
+        step_row (stmt);
+        return stmt.column_int64 (0);
+    }
+
+    // last_meal_id — до какой записи журнала включительно выгружено
+    public void mark_exported (DateTime day, string file_path, DateTime done_at,
+                               int64 last_meal_id) throws DatabaseError {
         var stmt = prepare ("""
-            INSERT INTO exports (export_date, file_path, done_at) VALUES (?, ?, ?)
-            ON CONFLICT (export_date) DO UPDATE SET file_path = excluded.file_path, done_at = excluded.done_at
+            INSERT INTO exports (export_date, file_path, done_at, last_meal_id) VALUES (?, ?, ?, ?)
+            ON CONFLICT (export_date) DO UPDATE SET file_path = excluded.file_path,
+                done_at = excluded.done_at, last_meal_id = excluded.last_meal_id
         """);
         stmt.bind_text (1, format_date (day));
         stmt.bind_text (2, file_path);
         stmt.bind_text (3, done_at.format ("%Y-%m-%d %H:%M:%S"));
+        stmt.bind_int64 (4, last_meal_id);
         step_done (stmt);
     }
 
@@ -289,6 +295,22 @@ public class Database {
 
     public static string format_date (DateTime day) {
         return day.format ("%Y-%m-%d");
+    }
+
+    // Учебные годы записей журнала, подходящих под where, по возрастанию.
+    // Формула та же, что в school_year_of (): январь–август — год начала на 1 меньше.
+    private int[] school_years (string where) throws DatabaseError {
+        var stmt = prepare ("""
+            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
+                          - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
+            FROM meals %s
+            ORDER BY 1
+        """.printf (where));
+        int[] result = {};
+        while (step_row (stmt)) {
+            result += stmt.column_int (0);
+        }
+        return result;
     }
 
     private void migrate () throws DatabaseError {

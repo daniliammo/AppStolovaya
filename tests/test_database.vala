@@ -6,7 +6,7 @@ DateTime at (int day, int hour, int minute) {
 
 void test_schema () throws Error {
     var db = new Database (":memory:");
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 2);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
 }
 
 void test_students () throws Error {
@@ -140,10 +140,60 @@ void test_settings () throws Error {
 void test_exports () throws Error {
     var db = new Database (":memory:");
     assert_null (db.last_export_date ());
-    db.mark_exported (at (14, 0, 0), "/tmp/a.xlsx", at (15, 0, 1));
-    db.mark_exported (at (15, 0, 0), "/tmp/a.xlsx", at (15, 18, 0));
-    db.mark_exported (at (15, 0, 0), "/tmp/a.xlsx", at (15, 19, 0));  // повторно за тот же день
+    assert_cmpint ((int) db.last_meal_id (), CompareOperator.EQ, 0);
+    db.mark_exported (at (14, 0, 0), "/tmp/a.xlsx", at (15, 0, 1), 0);
+    db.mark_exported (at (15, 0, 0), "/tmp/a.xlsx", at (15, 18, 0), 0);
+    db.mark_exported (at (15, 0, 0), "/tmp/a.xlsx", at (15, 19, 0), 0);  // повторно за тот же день
     assert_cmpstr (db.last_export_date (), CompareOperator.EQ, "2026-10-15");
+}
+
+// Изменённые годы — по номерам записей, а не по часам
+void test_changed_after_clock_back () throws Error {
+    var db = new Database (":memory:");
+    var id = db.add_student ("Иванов Иван", "5А", 1);
+    db.record_meal (id, MealType.BREAKFAST, at (15, 8, 0));
+    var now = new DateTime.now_local ();
+    db.mark_exported (now, "/tmp/a.xlsx", now, db.last_meal_id ());
+    assert_cmpint (db.changed_school_years ().length, CompareOperator.EQ, 0);
+
+    // Часы перевели назад: запись «раньше» выгрузки, но она новая
+    db.record_meal (id, MealType.LUNCH, at (15, 7, 0));
+    var years = db.changed_school_years ();
+    assert_cmpint (years.length, CompareOperator.EQ, 1);
+    assert_cmpint (years[0], CompareOperator.EQ, 2026);
+}
+
+// База версии 2: выгрузки без номера записи — все годы считаются изменёнными
+void test_migrate_from_2 () throws Error {
+    var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
+    var path = Path.build_filename (dir, "canteen.db");
+    Sqlite.Database old;
+    Sqlite.Database.open_v2 (path, out old);
+    assert_true (old.exec ("""
+        CREATE TABLE students (id INTEGER PRIMARY KEY, card_uid INTEGER UNIQUE,
+                               full_name TEXT NOT NULL, group_name TEXT NOT NULL);
+        CREATE TABLE meals (id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, meal_date TEXT NOT NULL,
+                            meal_type TEXT NOT NULL, issued_at TEXT NOT NULL);
+        CREATE TABLE exports (export_date TEXT PRIMARY KEY, file_path TEXT NOT NULL, done_at TEXT NOT NULL);
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO students VALUES (1, 1, 'Иванов Иван', '5А');
+        INSERT INTO meals VALUES (1, 1, '2026-10-15', 'lunch', '12:00:00');
+        INSERT INTO exports VALUES ('2026-10-16', '/tmp/a.xlsx', '2026-10-16 00:00:00');
+        PRAGMA user_version = 2;
+    """) == Sqlite.OK);
+    old = null;
+
+    var db = new Database (path);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
+    var years = db.changed_school_years ();
+    assert_cmpint (years.length, CompareOperator.EQ, 1);
+    assert_cmpint (years[0], CompareOperator.EQ, 2026);
+    db = null;
+
+    foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
+        FileUtils.remove (Path.build_filename (dir, name));
+    }
+    DirUtils.remove (dir);
 }
 
 void test_reopen_file () throws Error {
@@ -155,7 +205,7 @@ void test_reopen_file () throws Error {
     db = null;  // закрыть
 
     db = new Database (path);  // миграция не должна повториться
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 2);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
     assert_nonnull (db.find_student_by_card (7));
     db = null;
 
@@ -177,6 +227,8 @@ int main (string[] args) {
     Test.add_func ("/database/school-years", () => wrap (test_school_years));
     Test.add_func ("/database/settings", () => wrap (test_settings));
     Test.add_func ("/database/exports", () => wrap (test_exports));
+    Test.add_func ("/database/changed-after-clock-back", () => wrap (test_changed_after_clock_back));
+    Test.add_func ("/database/migrate-from-2", () => wrap (test_migrate_from_2));
     Test.add_func ("/database/reopen-file", () => wrap (test_reopen_file));
     return Test.run ();
 }

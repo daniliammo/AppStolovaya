@@ -48,6 +48,25 @@ void test_export_changed () throws Error {
     assert_xlsx (exporter.file_for_school_year (2023));
 }
 
+// Второй файл не записался — при следующей выгрузке пересобираются оба
+void test_export_partial_failure () throws Error {
+    var db = sample_database ();
+    var exporter = new ExcelExporter (db, Path.build_filename (tmp_dir, "Сбой"));
+    var blocker = exporter.file_for_school_year (2025);
+    DirUtils.create_with_parents (blocker, 0755);  // rename поверх папки не пройдёт
+    try {
+        exporter.export_changed ();
+        assert_not_reached ();
+    } catch (ExportError e) {
+        assert_true (e is ExportError.FAILED);
+    }
+    DirUtils.remove (blocker);
+
+    var files = exporter.export_changed ();
+    assert_cmpint (files.length, CompareOperator.EQ, 2);
+    assert_xlsx (blocker);
+}
+
 void test_export_year_bad_directory () throws Error {
     var db = sample_database ();
     var exporter = new ExcelExporter (db, "/proc/нет/Столовая");
@@ -67,14 +86,17 @@ int main (string[] args) {
         error ("%s", e.message);
     }
     Test.add_func ("/excel/export-changed", () => wrap (test_export_changed));
+    Test.add_func ("/excel/partial-failure", () => wrap (test_export_partial_failure));
     Test.add_func ("/excel/bad-directory", () => wrap (test_export_year_bad_directory));
     var result = Test.run ();
 
-    var dir = Path.build_filename (tmp_dir, "Столовая");
-    foreach (var year in new int[] { 2023, 2024, 2025 }) {
-        FileUtils.remove (Path.build_filename (dir, "столовая_%d-%d.xlsx".printf (year, year + 1)));
+    foreach (var name in new string[] { "Столовая", "Сбой" }) {
+        var dir = Path.build_filename (tmp_dir, name);
+        foreach (var year in new int[] { 2023, 2024, 2025 }) {
+            FileUtils.remove (Path.build_filename (dir, "столовая_%d-%d.xlsx".printf (year, year + 1)));
+        }
+        DirUtils.remove (dir);
     }
-    DirUtils.remove (dir);
     DirUtils.remove (tmp_dir);
     return result;
 }
