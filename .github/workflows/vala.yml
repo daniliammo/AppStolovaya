@@ -27,8 +27,8 @@ jobs:
         sudo update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-15 100
         cc --version
 
-    - name: make
-      run: make
+    - name: meson
+      run: meson compile -C build
 
     - name: tests
       run: ./tests/run.sh
