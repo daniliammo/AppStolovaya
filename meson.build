@@ -1,5 +1,5 @@
 project('Stolovaya', 'vala', 'c',
-  version: '0.9.1',
+  version: '0.9.6',
   meson_version: '>= 0.62.0',
 )
 
