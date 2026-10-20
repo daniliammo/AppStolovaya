@@ -1,4 +1,5 @@
-// База данных SQLite: ученики, журнал выдачи питания, отметки о выгрузках.
+// База данных SQLite: ученики, журнал выдачи питания, неизвестные карточки,
+// отметки о выгрузках.
 // Все SQL-запросы программы собраны в этом файле.
 //
 // Дата и время хранятся строками в местном времени:
@@ -32,6 +33,22 @@ public class DayRecord {
     public Student student;
     public string? breakfast_at;  // 'HH:MM:SS' или null, если не получал
     public string? lunch_at;
+}
+
+// Приложили карточку, которой нет в базе: всё, что прочитал считыватель
+// (поля как в CardRead), и когда
+public class UnknownCard {
+    public string raw;         // строка от считывателя как есть
+    public string card_type;   // «Em-Marine», «Mifare» или «Тест» (тестовый режим)
+    public string code;        // число в квадратных скобках (hex)
+    public int series;         // серия, 0–255
+    public int number;         // номер, 0–65535
+    public string scanned_at;  // 'HH:MM:SS'
+
+    // Номер карточки, как в CardRead.uid
+    public int64 uid {
+        get { return (int64) series * 65536 + number; }
+    }
 }
 
 public struct MealCounts {
@@ -79,6 +96,20 @@ public class Database {
         // У прежних выгрузок номера нет — один раз пересоберутся все годы.
         """
         ALTER TABLE exports ADD COLUMN last_meal_id INTEGER;
+        """,
+        // 4: прикладывания карточек, которых нет в базе (для «Последних выдач»)
+        """
+        CREATE TABLE unknown_cards (
+            id          INTEGER PRIMARY KEY,
+            raw         TEXT    NOT NULL,
+            card_type   TEXT    NOT NULL,
+            code        TEXT    NOT NULL,
+            series      INTEGER NOT NULL CHECK (series BETWEEN 0 AND 255),
+            number      INTEGER NOT NULL CHECK (number BETWEEN 0 AND 65535),
+            scan_date   TEXT    NOT NULL,
+            scanned_at  TEXT    NOT NULL
+        );
+        CREATE INDEX unknown_cards_by_date ON unknown_cards (scan_date);
         """
     };
 
@@ -224,6 +255,46 @@ public class Database {
         var result = new GenericArray<string> ();
         while (step_row (stmt)) {
             result.add (stmt.column_text (0));
+        }
+        return result;
+    }
+
+    // --- Неизвестные карточки ---
+
+    // Запомнить, что приложили карточку, которой нет в базе.
+    // Время берётся из when, card.scanned_at не нужен.
+    public void record_unknown_card (UnknownCard card, DateTime when) throws DatabaseError {
+        var stmt = prepare ("""
+            INSERT INTO unknown_cards (raw, card_type, code, series, number, scan_date, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """);
+        stmt.bind_text (1, card.raw);
+        stmt.bind_text (2, card.card_type);
+        stmt.bind_text (3, card.code);
+        stmt.bind_int (4, card.series);
+        stmt.bind_int (5, card.number);
+        stmt.bind_text (6, format_date (when));
+        stmt.bind_text (7, when.format ("%H:%M:%S"));
+        step_done (stmt);
+    }
+
+    // Неизвестные карточки, приложенные в этот день, по порядку прикладывания
+    public GenericArray<UnknownCard> unknown_cards (DateTime day) throws DatabaseError {
+        var stmt = prepare ("""
+            SELECT raw, card_type, code, series, number, scanned_at FROM unknown_cards
+            WHERE scan_date = ? ORDER BY id
+        """);
+        stmt.bind_text (1, format_date (day));
+        var result = new GenericArray<UnknownCard> ();
+        while (step_row (stmt)) {
+            result.add (new UnknownCard () {
+                raw = stmt.column_text (0),
+                card_type = stmt.column_text (1),
+                code = stmt.column_text (2),
+                series = stmt.column_int (3),
+                number = stmt.column_int (4),
+                scanned_at = stmt.column_text (5)
+            });
         }
         return result;
     }

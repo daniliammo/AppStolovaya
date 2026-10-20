@@ -6,7 +6,7 @@ DateTime at (int day, int hour, int minute) {
 
 void test_schema () throws Error {
     var db = new Database (":memory:");
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
 }
 
 void test_students () throws Error {
@@ -67,6 +67,46 @@ void test_record_meal () throws Error {
     var today = db.student_day (student, at (16, 0, 0));
     assert_cmpstr (today.breakfast_at, CompareOperator.EQ, "08:05:00");
     assert_null (today.lunch_at);
+}
+
+void test_unknown_cards () throws Error {
+    var db = new Database (":memory:");
+    var em = new UnknownCard () {
+        raw = "Em-Marine[5500] 120,09886", card_type = "Em-Marine", code = "5500", series = 120, number = 9886
+    };
+    var mifare = new UnknownCard () {
+        raw = "Mifare[658E6180045D85] 255,65535 UL (0144,00)", card_type = "Mifare",
+        code = "658E6180045D85", series = 255, number = 65535
+    };
+    db.record_unknown_card (em, at (15, 8, 10));
+    db.record_unknown_card (mifare, at (15, 8, 12));
+    db.record_unknown_card (em, at (16, 9, 0));  // другой день
+
+    var cards = db.unknown_cards (at (15, 0, 0));
+    assert_cmpint (cards.length, CompareOperator.EQ, 2);
+    assert_cmpstr (cards[0].raw, CompareOperator.EQ, "Em-Marine[5500] 120,09886");
+    assert_cmpstr (cards[0].card_type, CompareOperator.EQ, "Em-Marine");
+    assert_cmpstr (cards[0].code, CompareOperator.EQ, "5500");
+    assert_cmpint (cards[0].series, CompareOperator.EQ, 120);
+    assert_cmpint (cards[0].number, CompareOperator.EQ, 9886);
+    assert_true (cards[0].uid == 120 * 65536 + 9886);
+    assert_cmpstr (cards[0].scanned_at, CompareOperator.EQ, "08:10:00");
+    assert_true (cards[1].uid == 0xFFFFFF);
+    assert_cmpint (db.unknown_cards (at (17, 0, 0)).length, CompareOperator.EQ, 0);
+
+    // Серия больше байта в базу не попадает
+    try {
+        db.record_unknown_card (new UnknownCard () {
+            raw = "", card_type = "Тест", code = "", series = 256, number = 0
+        }, at (15, 9, 0));
+        assert_not_reached ();
+    } catch (DatabaseError e) {
+        assert_true (e is DatabaseError.CONSTRAINT);
+    }
+
+    // В журнал выдачи и выгрузку они не попадают
+    assert_cmpint (db.day_records (at (15, 0, 0)).length, CompareOperator.EQ, 0);
+    assert_cmpint ((int) db.last_meal_id (), CompareOperator.EQ, 0);
 }
 
 void test_record_meal_unknown_student () throws Error {
@@ -193,7 +233,7 @@ void test_migrate_from_2 () throws Error {
     old = null;
 
     var db = new Database (path);
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
     var years = db.changed_school_years ();
     assert_cmpint (years.length, CompareOperator.EQ, 1);
     assert_cmpint (years[0], CompareOperator.EQ, 2026);
@@ -214,7 +254,7 @@ void test_reopen_file () throws Error {
     db = null;  // закрыть
 
     db = new Database (path);  // миграция не должна повториться
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 3);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 4);
     assert_nonnull (db.find_student_by_card (7));
     db = null;
 
@@ -231,6 +271,7 @@ int main (string[] args) {
     Test.add_func ("/database/students", () => wrap (test_students));
     Test.add_func ("/database/student-constraints", () => wrap (test_student_constraints));
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));
+    Test.add_func ("/database/unknown-cards", () => wrap (test_unknown_cards));
     Test.add_func ("/database/record-meal-unknown-student", () => wrap (test_record_meal_unknown_student));
     Test.add_func ("/database/day-records", () => wrap (test_day_records));
     Test.add_func ("/database/school-years", () => wrap (test_school_years));
