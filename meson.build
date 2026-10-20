@@ -62,6 +62,7 @@ app = executable('Столовая',
   'src/history_dialog.vala',
   'src/system_setup.vala',
   'src/card_reader.vala',
+  'src/file_users.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,
@@ -106,6 +107,12 @@ test('settings', executable('test-settings',
   'src/settings.vala',
   'tests/test_settings.vala',
   dependencies: [glib_deps, sqlite_dep],
+))
+
+test('file-users', executable('test-file-users',
+  'src/file_users.vala',
+  'tests/test_file_users.vala',
+  dependencies: [glib_deps, posix_dep],
 ))
 
 # Настройка системы под считыватель, запускается программой через pkexec

@@ -114,7 +114,7 @@ public class App : Adw.Application {
         // Выход из сеанса: не даём завершить сеанс, пока файл не записан
         query_end.connect (() => {
             var cookie = inhibit (active_window, Gtk.ApplicationInhibitFlags.LOGOUT, "Сохранение Excel-файла");
-            run_export ();
+            run_export (0, false);
             uninhibit (cookie);
         });
     }
@@ -143,7 +143,7 @@ public class App : Adw.Application {
     // Закрытие программы: выгружаем всё, что изменилось
     protected override void shutdown () {
         if (exporter != null) {
-            // Программа закрывается — кнопку «Открыть папку» нажать будет некому
+            // Программа закрывается — кнопки нажимать будет некому
             run_export (0, false);
         }
         base.shutdown ();
@@ -151,8 +151,9 @@ public class App : Adw.Application {
 
     // Пересобрать файлы учебных лет с новыми записями (и with_school_year в любом случае)
     // и сообщить об этом. Ничего не изменилось — ничего не пишем и не сообщаем.
-    // with_button — кнопка «Открыть папку» в уведомлении.
-    private void run_export (int with_school_year = 0, bool with_button = true) {
+    // interactive — кнопка «Открыть папку» в уведомлении и окно, если файл
+    // открыт в другой программе; false — при выходе программы или из сеанса.
+    private void run_export (int with_school_year = 0, bool interactive = true) {
         GenericArray<string> files;
         try {
             files = exporter.export_changed (with_school_year);
@@ -174,7 +175,98 @@ public class App : Adw.Application {
         export_notification = send_desktop_notification (
             files.length == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены",
             string.joinv ("\n", names), "x-office-spreadsheet", export_notification,
-            with_button ? new string[] { "open-folder", "Открыть папку" } : new string[0]);
+            interactive ? new string[] { "open-folder", "Открыть папку" } : new string[0]);
+        if (interactive) {
+            warn_if_open (files);
+        }
+    }
+
+    // Пересобранный файл открыт в другой программе (например, LibreOffice):
+    // в ней старая версия, и если сохранить файл там, она запишется поверх
+    // новой. Сообщаем и предлагаем закрыть эту программу.
+    private void warn_if_open (GenericArray<string> files) {
+        var users = new GenericArray<FileUser> ();
+        var open_files = new string[0];
+        var programs = new string[0];
+        foreach (var file in files) {
+            var found = FileUsers.find (file);
+            if (found.length > 0) {
+                open_files += file;
+            }
+            foreach (var user in found) {
+                if (!(user.name in programs)) {
+                    programs += user.name;
+                }
+                // Одна программа может держать несколько файлов
+                var known = false;
+                foreach (var other in users) {
+                    known = known || other.pid == user.pid;
+                }
+                if (!known) {
+                    users.add (user);
+                }
+            }
+        }
+        if (users.length == 0 || active_window == null) {
+            return;
+        }
+
+        var names = new string[0];
+        foreach (var file in open_files) {
+            names += "«%s»".printf (Path.get_basename (file));
+        }
+        // Имена программ — в именительном падеже: «в программе LibreOffice»
+        var program = string.joinv (", ", programs);
+        var where = (programs.length == 1 ? "в программе " : "в программах ") + program;
+        var body = open_files.length == 1
+            ? "Файл %s обновлён, а %s открыта его старая версия. Если сохранить файл там, новые записи из него пропадут.".printf (names[0], where)
+            : "Файлы %s обновлены, а %s открыты их старые версии. Если сохранить файлы там, новые записи из них пропадут.".printf (string.joinv (", ", names), where);
+        body += " В базе «Столовой» они останутся.\n\n"
+            + "При закрытии программы закроются все её окна, несохранённые изменения в них будут потеряны.";
+
+        var dialog = new Adw.AlertDialog (
+            open_files.length == 1 ? "Excel-файл открыт в другой программе" : "Excel-файлы открыты в другой программе",
+            body);
+        dialog.add_response ("keep", "Не закрывать");
+        dialog.add_response ("close", programs.length == 1 ? "Закрыть " + program : "Закрыть программы");
+        dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
+        dialog.default_response = "keep";
+        dialog.close_response = "keep";
+        dialog.response.connect ((response) => {
+            if (response == "close") {
+                close_programs (users, open_files, program, programs.length > 1);
+            }
+        });
+        dialog.present (active_window);
+    }
+
+    // Закрыть программы сигналом и подождать до 5 секунд, пока они отпустят файлы
+    private void close_programs (GenericArray<FileUser> users, string[] files, string program, bool several) {
+        foreach (var user in users) {
+            FileUsers.terminate (user);
+        }
+        int waited = 0;
+        Timeout.add (250, () => {
+            waited += 250;
+            var still_open = false;
+            foreach (var file in files) {
+                still_open = still_open || FileUsers.find (file).length > 0;
+            }
+            if (still_open && waited < 5000) {
+                return Source.CONTINUE;
+            }
+
+            var window = active_window as MainWindow;
+            if (still_open) {
+                window?.show_toast ("%s не %s — закройте вручную".printf (program, several ? "закрываются" : "закрывается"));
+            } else {
+                foreach (var file in files) {
+                    FileUsers.remove_stale_lock (file);
+                }
+                window?.show_toast ("%s %s".printf (program, several ? "закрыты" : "закрыт"));
+            }
+            return Source.REMOVE;
+        });
     }
 
     // Нажатие кнопки в уведомлении приходит сигналом ActionInvoked, а перед ним
