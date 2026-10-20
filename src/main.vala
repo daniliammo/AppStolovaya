@@ -12,6 +12,13 @@ public class App : Adw.Application {
 #endif
     private string today = "";  // 'YYYY-MM-DD', чтобы заметить полночь
 
+    // Последнее уведомление о выгрузке: его кнопка «Открыть папку»
+    // показывает эти файлы. Новое уведомление заменяет прежнее.
+    private uint32 export_notification = 0;
+    private string[] exported_files = {};
+    // Токен от сервера уведомлений, чтобы файловый менеджер открылся поверх окон
+    private string? activation_token = null;
+
     public App () {
         Object (
             application_id: "org.gurov.Stolovaya",
@@ -67,6 +74,7 @@ public class App : Adw.Application {
         }
 
         reader.start ();
+        watch_notifications ();
 
         exporter = new ExcelExporter (database, ExcelExporter.default_directory ());
 
@@ -135,14 +143,16 @@ public class App : Adw.Application {
     // Закрытие программы: выгружаем всё, что изменилось
     protected override void shutdown () {
         if (exporter != null) {
-            run_export ();
+            // Программа закрывается — кнопку «Открыть папку» нажать будет некому
+            run_export (0, false);
         }
         base.shutdown ();
     }
 
     // Пересобрать файлы учебных лет с новыми записями (и with_school_year в любом случае)
     // и сообщить об этом. Ничего не изменилось — ничего не пишем и не сообщаем.
-    private void run_export (int with_school_year = 0) {
+    // with_button — кнопка «Открыть папку» в уведомлении.
+    private void run_export (int with_school_year = 0, bool with_button = true) {
         GenericArray<string> files;
         try {
             files = exporter.export_changed (with_school_year);
@@ -156,20 +166,86 @@ public class App : Adw.Application {
         }
 
         var names = new string[0];
+        exported_files = {};
         foreach (var file in files) {
             names += display_path (file);
+            exported_files += file;
         }
-        send_desktop_notification (files.length == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены",
-            string.joinv ("\n", names));
+        export_notification = send_desktop_notification (
+            files.length == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены",
+            string.joinv ("\n", names), "x-office-spreadsheet", export_notification,
+            with_button ? new string[] { "open-folder", "Открыть папку" } : new string[0]);
+    }
+
+    // Нажатие кнопки в уведомлении приходит сигналом ActionInvoked, а перед ним
+    // ActivationToken. Сигналы общие для всех программ — сверяем id уведомления.
+    private void watch_notifications () {
+        try {
+            Bus.get_sync (BusType.SESSION).signal_subscribe (
+                "org.freedesktop.Notifications", "org.freedesktop.Notifications",
+                null, "/org/freedesktop/Notifications", null, DBusSignalFlags.NONE,
+                (connection, sender, path, iface, name, parameters) => {
+                    if (export_notification == 0
+                        || parameters.get_child_value (0).get_uint32 () != export_notification) {
+                        return;
+                    }
+                    switch (name) {
+                    case "ActivationToken":
+                        activation_token = parameters.get_child_value (1).get_string ();
+                        break;
+                    case "ActionInvoked":
+                        if (parameters.get_child_value (1).get_string () == "open-folder") {
+                            show_in_file_manager (exported_files, activation_token);
+                        }
+                        activation_token = null;
+                        break;
+                    case "NotificationClosed":
+                        export_notification = 0;
+                        activation_token = null;
+                        break;
+                    }
+                });
+        } catch (Error e) {
+            warning ("Кнопки в уведомлениях не будут работать: %s", e.message);
+        }
+    }
+
+    // Открыть папку с файлами в файловом менеджере и выделить их.
+    // Не умеет (нет org.freedesktop.FileManager1) — просто открыть папку.
+    private static void show_in_file_manager (string[] files, string? token) {
+        if (files.length == 0) {
+            return;
+        }
+        var uris = new string[0];
+        foreach (var file in files) {
+            uris += File.new_for_path (file).get_uri ();
+        }
+        try {
+            Bus.get_sync (BusType.SESSION).call_sync (
+                "org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
+                "org.freedesktop.FileManager1", "ShowItems",
+                new Variant.tuple ({ new Variant.strv (uris), new Variant.string (token ?? "") }),
+                null, DBusCallFlags.NONE, 5000);
+            return;
+        } catch (Error e) {
+            debug ("FileManager1.ShowItems: %s", e.message);
+        }
+        try {
+            var folder = File.new_for_path (files[0]).get_parent ();
+            AppInfo.launch_default_for_uri (folder.get_uri (), null);
+        } catch (Error e) {
+            warning ("Не удалось открыть папку: %s", e.message);
+        }
     }
 
     // Системное уведомление GNOME. Через org.freedesktop.Notifications напрямую:
     // GLib.Notification в GNOME работает только для приложений
     // с установленным .desktop-файлом.
     // replaces — id прежнего уведомления, которое заменить новым (0 — показать
-    // отдельно). Возвращает id показанного уведомления, 0 — если не вышло.
+    // отдельно). actions — кнопки парами: ключ, надпись. Возвращает id
+    // показанного уведомления, 0 — если не вышло.
     public static uint32 send_desktop_notification (string title, string body,
-            string icon = "x-office-spreadsheet", uint32 replaces = 0) {
+            string icon = "x-office-spreadsheet", uint32 replaces = 0, string[] actions = {}) {
         try {
             var bus = Bus.get_sync (BusType.SESSION);
             var reply = bus.call_sync (
@@ -181,7 +257,7 @@ public class App : Adw.Application {
                     new Variant.string (icon),
                     new Variant.string (title),
                     new Variant.string (body),
-                    new Variant.array (VariantType.STRING, {}),        // кнопки
+                    new Variant.strv (actions),                        // кнопки
                     new Variant.array (new VariantType ("{sv}"), {}),  // подсказки
                     new Variant.int32 (-1)             // время показа по умолчанию
                 }),
