@@ -9,7 +9,9 @@ public errordomain DatabaseError {
     OPEN,
     QUERY,
     // Нарушено ограничение: номер карточки уже занят, пустое ФИО и т.п.
-    CONSTRAINT
+    CONSTRAINT,
+    // Базу держит другая программа (DB Browser с незаписанными изменениями)
+    BUSY
 }
 
 public enum MealType {
@@ -198,6 +200,18 @@ public class Database {
         var stmt = prepare ("PRAGMA data_version");
         step_row (stmt);
         return stmt.column_int64 (0);
+    }
+
+    // Держит ли другая программа базу для записи: пробуем начать запись,
+    // не дожидаясь. Чтение при этом не мешает — база в режиме WAL.
+    public bool write_locked () {
+        db.busy_timeout (0);
+        var result = db.exec ("BEGIN IMMEDIATE");
+        if (result == Sqlite.OK) {
+            db.exec ("ROLLBACK");
+        }
+        db.busy_timeout (BUSY_TIMEOUT_MS);
+        return result == Sqlite.BUSY || result == Sqlite.LOCKED;
     }
 
     public int schema_version () throws DatabaseError {
@@ -549,7 +563,7 @@ public class Database {
     // «database is locked» человеку ничего не скажет
     private DatabaseError step_error (int result) {
         if (result == Sqlite.BUSY || result == Sqlite.LOCKED) {
-            return new DatabaseError.QUERY ("база занята другой программой (например, DB Browser for SQLite)"
+            return new DatabaseError.BUSY ("база занята другой программой (например, DB Browser for SQLite)"
                 + " — запишите или отмените изменения в ней");
         }
         return new DatabaseError.QUERY ("%s", db.errmsg ());

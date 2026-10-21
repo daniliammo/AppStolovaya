@@ -308,14 +308,17 @@ void test_busy () throws Error {
     assert_true (other.exec ("UPDATE students SET full_name = 'Иванов Илья'") == Sqlite.OK);
     assert_true (db.data_version () != version);  // правку другой программой видно
 
+    assert_false (db.write_locked ());
     assert_true (other.exec ("BEGIN IMMEDIATE") == Sqlite.OK);
+    assert_true (db.write_locked ());
     try {
         db.record_meal (id, MealType.LUNCH, at (15, 12, 0));
         assert_not_reached ();
-    } catch (DatabaseError e) {
+    } catch (DatabaseError.BUSY e) {
         assert_true ("занята другой программой" in e.message);
     }
     other.exec ("ROLLBACK");
+    assert_false (db.write_locked ());
     assert_true (db.record_meal (id, MealType.LUNCH, at (15, 12, 0)));
     other = null;
     db = null;
