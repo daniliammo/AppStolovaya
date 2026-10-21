@@ -23,6 +23,10 @@ public class MainWindow : MainWindowUi {
     private uint return_timeout = 0;  // таймер возврата к ожиданию
     private uint32 card_notification = 0;  // id уведомления о карточке, чтобы заменять его
 
+    // База занята другой программой: проверка, отпустила ли она базу, и уведомление
+    private uint busy_check = 0;
+    private uint32 busy_notification = 0;
+
     // Одна строка списка «Последние выдачи»: выдача или неизвестная карточка
     private class Issue {
         public string time;  // 'HH:MM:SS'
@@ -448,7 +452,37 @@ public class MainWindow : MainWindowUi {
 
     private void show_database_error (DatabaseError e) {
         critical ("База данных: %s", e.message);
-        show_toast ("Ошибка базы данных: " + e.message);
+        if (e is DatabaseError.BUSY) {
+            show_database_busy ();
+        } else {
+            show_toast ("Ошибка базы данных: " + e.message);
+        }
+    }
+
+    // Базу держит другая программа (DB Browser с незаписанными изменениями):
+    // полоса видна, пока та не отпустит базу. Окно «Столовой», скорее всего,
+    // под этой программой — тогда ещё и уведомление, при каждой неудаче:
+    // каждая — незаписанная выдача.
+    private void show_database_busy () {
+        database_banner.revealed = true;
+        if (!is_active) {
+            busy_notification = App.send_desktop_notification ("База занята другой программой",
+                "Выдачи не записываются. Запишите или отмените изменения в программе, где открыта база.",
+                "dialog-warning-symbolic", busy_notification);
+        }
+        if (busy_check != 0) {
+            return;
+        }
+        busy_check = Timeout.add_seconds (2, () => {
+            if (database.write_locked ()) {
+                return Source.CONTINUE;
+            }
+            busy_check = 0;
+            database_banner.revealed = false;
+            App.close_desktop_notification (busy_notification);
+            busy_notification = 0;
+            return Source.REMOVE;
+        });
     }
 
     private void update_clock () {

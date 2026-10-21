@@ -211,16 +211,7 @@ public class App : Adw.Application {
     // Уведомление о выгрузке, которое переживёт выход программы: прежнее
     // закрываем, новое шлёт отдельный процесс (см. send_detached_notification)
     private void replace_export_notification (string title, string body) {
-        if (export_notification != 0) {
-            try {
-                Bus.get_sync (BusType.SESSION).call_sync (
-                    "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
-                    "org.freedesktop.Notifications", "CloseNotification",
-                    new Variant ("(u)", export_notification), null, DBusCallFlags.NONE, 2000);
-            } catch (Error e) {
-                debug ("CloseNotification: %s", e.message);
-            }
-        }
+        close_desktop_notification (export_notification);
         export_notification = 0;
         exported_files = {};
         send_detached_notification (title, body);
@@ -528,6 +519,21 @@ public class App : Adw.Application {
         } catch (Error e) {
             warning ("Уведомление не отправлено: %s", e.message);
             return 0;
+        }
+    }
+
+    // Убрать показанное уведомление; id 0 — уведомления нет
+    public static void close_desktop_notification (uint32 id) {
+        if (id == 0) {
+            return;
+        }
+        try {
+            Bus.get_sync (BusType.SESSION).call_sync (
+                "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                "org.freedesktop.Notifications", "CloseNotification",
+                new Variant ("(u)", id), null, DBusCallFlags.NONE, 2000);
+        } catch (Error e) {
+            debug ("CloseNotification: %s", e.message);
         }
     }
 

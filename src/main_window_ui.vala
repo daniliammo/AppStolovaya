@@ -19,6 +19,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Image reader_icon;
     protected Adw.Banner reader_banner;
     protected Gtk.ToggleButton dark_button;
+    // Полоса «База занята другой программой» — пока выдачи не записываются
+    protected Adw.Banner database_banner;
 
     // Карточка состояния и её страницы
     protected Gtk.Box status_card;
@@ -95,11 +97,16 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
 
         reader_banner.add_css_class ("error");
 
+        database_banner = new Adw.Banner (
+            "База занята другой программой — выдачи не записываются. Запишите или отмените изменения в ней");
+        database_banner.add_css_class ("error");
+
         var toolbar = new Adw.ToolbarView () {
             content = body
         };
         toolbar.add_top_bar (build_header_bar ());
         toolbar.add_top_bar (reader_banner);
+        toolbar.add_top_bar (database_banner);
 #if DEBUG
         toolbar.add_bottom_bar (build_simulation_bar ());
 #endif
