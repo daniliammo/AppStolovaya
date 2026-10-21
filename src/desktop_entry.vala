@@ -27,8 +27,13 @@ namespace DesktopEntry {
                     .replace (ICON_COLOR, hex (accent))
                     .replace (ICON_DARK, hex (mix (accent, 0, 0.15f)));
             }
-            write_if_changed (Path.build_filename (data, "icons", "hicolor", "scalable", "apps", ID + ".svg"),
-                icon.data);
+            var theme = Path.build_filename (data, "icons", "hicolor");
+            if (write_if_changed (Path.build_filename (theme, "scalable", "apps", ID + ".svg"), icon.data)) {
+                // GNOME Shell перечитывает значки, только когда меняется время
+                // изменения папки темы, а не вложенных папок
+                File.new_for_path (theme).set_attribute_uint64 (FileAttribute.TIME_MODIFIED,
+                    get_real_time () / 1000000, FileQueryInfoFlags.NONE);
+            }
 
             var exe = FileUtils.read_link ("/proc/self/exe");
             var entry = """[Desktop Entry]
@@ -58,19 +63,21 @@ StartupNotify=true
             (uint) (c.green * 255 + 0.5f), (uint) (c.blue * 255 + 0.5f));
     }
 
-    // Не трогаем файл без надобности: GNOME перечитывает ярлыки при каждом изменении
-    void write_if_changed (string path, uint8[] contents) throws Error {
+    // Не трогаем файл без надобности: GNOME перечитывает ярлыки при каждом изменении.
+    // true — файл записан.
+    bool write_if_changed (string path, uint8[] contents) throws Error {
         uint8[] old;
         try {
             FileUtils.get_data (path, out old);
             if (old.length == contents.length && Memory.cmp (old, contents, contents.length) == 0) {
-                return;
+                return false;
             }
         } catch (FileError e) {
             // Файла ещё нет
         }
         DirUtils.create_with_parents (Path.get_dirname (path), 0755);
         FileUtils.set_data (path, contents);
+        return true;
     }
 
     // Путь в Exec — в кавычках, \ " ` $ экранируются (спецификация Desktop Entry)
