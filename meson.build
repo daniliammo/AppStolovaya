@@ -46,8 +46,15 @@ config_vala = configure_file(
   configuration: conf,
 )
 
+# Значок программы встраивается в неё саму (см. src/desktop_entry.vala)
+resources = import('gnome').compile_resources('resources',
+  'data/stolovaya.gresource.xml',
+  source_dir: 'data',
+)
+
 app = executable('Столовая',
   'src/main.vala',
+  resources,
   config_vala,
   'src/database.vala',
   'src/excel_export.vala',
@@ -62,6 +69,7 @@ app = executable('Столовая',
   'src/system_setup.vala',
   'src/card_reader.vala',
   'src/file_users.vala',
+  'src/desktop_entry.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,

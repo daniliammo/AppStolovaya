@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Значок программы «Столовая»: тарелка с вилкой и ножом -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffa348"/>
+      <stop offset="1" stop-color="#e66100"/>
+    </linearGradient>
+    <radialGradient id="plate" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#deddda"/>
+    </radialGradient>
+  </defs>
+  <!-- Основа со «срезом» снизу, как у значков GNOME -->
+  <rect x="8" y="14" width="112" height="104" rx="22" fill="#c64600"/>
+  <rect x="8" y="10" width="112" height="104" rx="22" fill="url(#bg)"/>
+  <!-- Тарелка -->
+  <circle cx="64" cy="64" r="34" fill="#000000" opacity="0.15" transform="translate(0 3)"/>
+  <circle cx="64" cy="62" r="34" fill="url(#plate)"/>
+  <circle cx="64" cy="62" r="23" fill="none" stroke="#c0bfbc" stroke-width="2.5"/>
+  <!-- Вилка -->
+  <g fill="#ffffff">
+    <rect x="15" y="28" width="3" height="20" rx="1.5"/>
+    <rect x="20.5" y="28" width="3" height="20" rx="1.5"/>
+    <rect x="26" y="28" width="3" height="20" rx="1.5"/>
+    <path d="M15 44 h14 v2 a7 7 0 0 1 -4.5 6.5 v40 a2.5 2.5 0 0 1 -5 0 v-40 A7 7 0 0 1 15 46 z"/>
+  </g>
+  <!-- Нож -->
+  <path fill="#ffffff" d="M107.5 28 c-6 4 -8 14 -8 26 v4 h5.5 v34.5 a2.5 2.5 0 0 0 5 0 V30 a2 2 0 0 0 -2.5 -2 z"/>
+</svg>

@@ -27,7 +27,7 @@ public class App : Adw.Application {
 
     public App () {
         Object (
-            application_id: "org.gurov.Stolovaya",
+            application_id: DesktopEntry.ID,
             flags: ApplicationFlags.DEFAULT_FLAGS,
             // Узнавать о выходе из сеанса и выключении (сигнал query-end)
             register_session: true
@@ -49,6 +49,8 @@ public class App : Adw.Application {
     protected override void startup () {
         base.startup ();
         Styles.load ();
+        DesktopEntry.install ();
+        Gtk.Window.set_default_icon_name (DesktopEntry.ID);
 
         var about = new SimpleAction ("about", null);
         about.activate.connect (show_about);
@@ -556,7 +558,7 @@ public class App : Adw.Application {
     private void show_about () {
         var dialog = new Adw.AboutDialog () {
             application_name = "Столовая",
-            application_icon = "auth-smartcard-symbolic",
+            application_icon = DesktopEntry.ID,
             version = Config.VERSION,
             comments = "Учёт питания по карточкам\nРаботает с карточками EM-Marine и Mifare (125 кГц и 13.56 МГц).\nВидит некоторые телефоны, но только те которые представляются как Mifare.\nПротестировано на сканере IronLogic Z-2 (мод. RD AII)",
             developer_name = "Гуров Данил Дмитриевич",

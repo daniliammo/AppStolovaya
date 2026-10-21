@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Значок внутри программы: GtkApplication сам добавляет
+     /org/gurov/Stolovaya/icons в тему значков -->
+<gresources>
+  <gresource prefix="/org/gurov/Stolovaya">
+    <file alias="icons/scalable/apps/org.gurov.Stolovaya.svg">org.gurov.Stolovaya.svg</file>
+  </gresource>
+</gresources>
