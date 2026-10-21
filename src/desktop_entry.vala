@@ -3,17 +3,32 @@
 // программы в панели задач, Alt+Tab и в уведомлениях — без ярлыка окно
 // для GNOME «Неизвестное приложение». Ярлык ведёт на запущенную программу:
 // переносимую папку можно положить куда угодно, ярлык обновится при запуске.
+//
+// Значок — в акцентном цвете системы (Настройки → Внешний вид): при его смене
+// программа перезаписывает значок (см. App.startup). Без поддержки акцентных
+// цветов он остаётся оранжевым, как в data/org.gurov.Stolovaya.svg.
 
 namespace DesktopEntry {
     public const string ID = "org.gurov.Stolovaya";
     const string ICON_RESOURCE = "/org/gurov/Stolovaya/icons/scalable/apps/" + ID + ".svg";
+    // Цвета основы в исходном значке: светлый верх, низ и тёмный «срез»
+    const string ICON_LIGHT = "#ffa348";
+    const string ICON_COLOR = "#e66100";
+    const string ICON_DARK = "#c64600";
 
     public void install () {
         var data = Environment.get_user_data_dir ();
         try {
-            var icon = resources_lookup_data (ICON_RESOURCE, ResourceLookupFlags.NONE);
+            var icon = (string) resources_lookup_data (ICON_RESOURCE, ResourceLookupFlags.NONE).get_data ();
+            var style = Adw.StyleManager.get_default ();
+            if (style.system_supports_accent_colors) {
+                var accent = style.get_accent_color ().to_rgba ();
+                icon = icon.replace (ICON_LIGHT, hex (mix (accent, 1, 0.3f)))
+                    .replace (ICON_COLOR, hex (accent))
+                    .replace (ICON_DARK, hex (mix (accent, 0, 0.15f)));
+            }
             write_if_changed (Path.build_filename (data, "icons", "hicolor", "scalable", "apps", ID + ".svg"),
-                icon.get_data ());
+                icon.data);
 
             var exe = FileUtils.read_link ("/proc/self/exe");
             var entry = """[Desktop Entry]
@@ -30,6 +45,17 @@ StartupNotify=true
         } catch (Error e) {
             warning ("Ярлык программы: %s", e.message);
         }
+    }
+
+    // Цвет, смешанный с белым (to = 1) или чёрным (to = 0) в доле part
+    Gdk.RGBA mix (Gdk.RGBA c, float to, float part) {
+        return { c.red + (to - c.red) * part, c.green + (to - c.green) * part,
+                 c.blue + (to - c.blue) * part, 1 };
+    }
+
+    string hex (Gdk.RGBA c) {
+        return "#%02x%02x%02x".printf ((uint) (c.red * 255 + 0.5f),
+            (uint) (c.green * 255 + 0.5f), (uint) (c.blue * 255 + 0.5f));
     }
 
     // Не трогаем файл без надобности: GNOME перечитывает ярлыки при каждом изменении

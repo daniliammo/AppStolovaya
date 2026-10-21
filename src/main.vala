@@ -50,6 +50,7 @@ public class App : Adw.Application {
         base.startup ();
         Styles.load ();
         DesktopEntry.install ();
+        Adw.StyleManager.get_default ().notify["accent-color"].connect (() => DesktopEntry.install ());
         Gtk.Window.set_default_icon_name (DesktopEntry.ID);
 
         var about = new SimpleAction ("about", null);
