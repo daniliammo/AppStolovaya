@@ -155,8 +155,18 @@ public class App : Adw.Application {
         if (exporter != null) {
             // Программа закрывается — кнопки нажимать будет некому
             run_export (0, false);
+            // Нового нечего было записать, а уведомление о прошлой выгрузке
+            // ещё на экране — иначе оно пропадёт вместе с программой
+            if (export_notification != 0) {
+                replace_export_notification (export_title (exported_files.length),
+                    string.joinv ("\n", exported_files));
+            }
         }
         base.shutdown ();
+    }
+
+    private static string export_title (int count) {
+        return count == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены";
     }
 
     // Пересобрать файлы учебных лет с новыми записями (и with_school_year в любом случае)
@@ -169,7 +179,11 @@ public class App : Adw.Application {
             files = exporter.export_changed (with_school_year);
         } catch (Error e) {
             critical ("Выгрузка в Excel: %s", e.message);
-            send_desktop_notification ("Не удалось сохранить Excel-файл", e.message);
+            if (interactive) {
+                send_desktop_notification ("Не удалось сохранить Excel-файл", e.message);
+            } else {
+                send_detached_notification ("Не удалось сохранить Excel-файл", e.message);
+            }
             return;
         }
         if (files.length == 0) {
@@ -177,17 +191,61 @@ public class App : Adw.Application {
         }
 
         var names = new string[0];
-        exported_files = {};
         foreach (var file in files) {
             names += file;
-            exported_files += file;
         }
-        export_notification = send_desktop_notification (
-            files.length == 1 ? "Excel-файл сохранён" : "Excel-файлы сохранены",
-            string.joinv ("\n", names), "x-office-spreadsheet", export_notification,
-            interactive ? new string[] { "open-folder", "Открыть папку" } : new string[0]);
-        if (interactive) {
-            warn_if_open (files);
+        var body = string.joinv ("\n", names);
+        if (!interactive) {
+            replace_export_notification (export_title (files.length), body);
+            return;
+        }
+        exported_files = names;
+        export_notification = send_desktop_notification (export_title (files.length), body,
+            "x-office-spreadsheet", export_notification, { "open-folder", "Открыть папку" });
+        warn_if_open (files);
+    }
+
+    // Уведомление о выгрузке, которое переживёт выход программы: прежнее
+    // закрываем, новое шлёт отдельный процесс (см. send_detached_notification)
+    private void replace_export_notification (string title, string body) {
+        if (export_notification != 0) {
+            try {
+                Bus.get_sync (BusType.SESSION).call_sync (
+                    "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                    "org.freedesktop.Notifications", "CloseNotification",
+                    new Variant ("(u)", export_notification), null, DBusCallFlags.NONE, 2000);
+            } catch (Error e) {
+                debug ("CloseNotification: %s", e.message);
+            }
+        }
+        export_notification = 0;
+        exported_files = {};
+        send_detached_notification (title, body);
+    }
+
+    // GNOME Shell убирает уведомления программы, когда она завершается, если
+    // узнал её по окну (по PID отправителя) — так бывает, пока окно открыто.
+    // Уведомление от отдельного процесса gdbus без окон ни к какой программе
+    // не привязано и остаётся на экране после выхода.
+    private static void send_detached_notification (string title, string body) {
+        string[] argv = {
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify",
+            "--",  // иначе -1 в конце gdbus примет за параметр
+            new Variant.string ("Столовая").print (false), "0",
+            new Variant.string ("x-office-spreadsheet").print (false),
+            new Variant.string (title).print (false),
+            new Variant.string (body).print (false),
+            "[]", "{}", "-1"
+        };
+        try {
+            Process.spawn_async (null, argv, null,
+                SpawnFlags.SEARCH_PATH | SpawnFlags.STDOUT_TO_DEV_NULL, null, null);
+        } catch (SpawnError e) {
+            warning ("gdbus: %s", e.message);
+            send_desktop_notification (title, body);
         }
     }
 
