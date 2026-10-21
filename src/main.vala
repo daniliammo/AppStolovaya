@@ -228,7 +228,9 @@ public class App : Adw.Application {
     // GNOME Shell убирает уведомления программы, когда она завершается, если
     // узнал её по окну (по PID отправителя) — так бывает, пока окно открыто.
     // Уведомление от отдельного процесса gdbus без окон ни к какой программе
-    // не привязано и остаётся на экране после выхода.
+    // не привязано и остаётся на экране после выхода. Подсказку desktop-entry
+    // ему не передаём: с ней GNOME привяжет его к программе и уберёт,
+    // как только gdbus завершится.
     private static void send_detached_notification (string title, string body) {
         string[] argv = {
             "gdbus", "call", "--session",
@@ -513,7 +515,11 @@ public class App : Adw.Application {
                     new Variant.string (title),
                     new Variant.string (body),
                     new Variant.strv (actions),                        // кнопки
-                    new Variant.array (new VariantType ("{sv}"), {}),  // подсказки
+                    // Подсказка: чьё уведомление — имя и значок из ярлыка программы
+                    new Variant.array (new VariantType ("{sv}"), {
+                        new Variant.dict_entry (new Variant.string ("desktop-entry"),
+                            new Variant.variant (new Variant.string (DesktopEntry.ID)))
+                    }),
                     new Variant.int32 (-1)             // время показа по умолчанию
                 }),
                 new VariantType ("(u)"), DBusCallFlags.NONE, 2000);
