@@ -5,9 +5,9 @@
 
 public class MainWindow : MainWindowUi {
     // Сколько секунд показывать результат и сколько ждать на странице ученика
-    private const uint RESULT_SECONDS = 5;
+    private const uint RESULT_SECONDS = 10;
     private const uint STUDENT_SECONDS = 15;
-    private const int RECENT_COUNT = 5;
+    private const int RECENT_COUNT = 10;
 
     private Database database;
     private Settings settings;
