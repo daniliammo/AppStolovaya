@@ -40,12 +40,6 @@ public class CardRead {
     }
 }
 
-public enum ReaderState {
-    DISCONNECTED,  // считыватель не подключён
-    NO_ACCESS,     // подключён, но нет прав на порт (нужна настройка системы)
-    CONNECTED
-}
-
 public class CardReader : Object {
     public ReaderState state { get; private set; default = ReaderState.DISCONNECTED; }
     public string? device_path { get; private set; }
