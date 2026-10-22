@@ -17,6 +17,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
 
     // Сканер: значок в заголовке и полоса с кнопкой «Настроить», когда он не работает
     protected Gtk.Image reader_icon;
+    protected Gtk.Label idle_title;
+    protected Gtk.Label idle_hint;
     protected Adw.Banner reader_banner;
     protected Gtk.ToggleButton dark_button;
     // Полоса «База занята другой программой» — пока выдачи не записываются
@@ -196,14 +198,14 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         icon.add_css_class ("dim-label");
         icon.add_css_class ("breathing");
 
-        var title = new Gtk.Label ("Приложите карточку");
-        title.add_css_class ("title-1");
+        idle_title = new Gtk.Label ("Приложите карточку");
+        idle_title.add_css_class ("title-1");
 
-        var hint = new Gtk.Label ("к считывателю, чтобы получить завтрак или обед") {
+        idle_hint = new Gtk.Label ("к считывателю, чтобы получить завтрак или обед") {
             wrap = true,
             justify = Gtk.Justification.CENTER
         };
-        hint.add_css_class ("dim-label");
+        idle_hint.add_css_class ("dim-label");
 
         clock_label = new Gtk.Label ("00:00") {
             margin_top = 18
@@ -219,8 +221,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             valign = Gtk.Align.CENTER
         };
         box.append (icon);
-        box.append (title);
-        box.append (hint);
+        box.append (idle_title);
+        box.append (idle_hint);
         box.append (clock_label);
         box.append (meal_period_label);
         return box;

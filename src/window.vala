@@ -107,21 +107,29 @@ public class MainWindow : MainWindowUi {
 
         string icon, text, css;
         switch (reader.state) {
-        case ReaderState.CONNECTED:
-            icon = "media-record-symbolic";
-            text = "Сканер подключён";
-            css = "success";
-            break;
-        case ReaderState.NO_ACCESS:
-            icon = "dialog-warning-symbolic";
-            text = "Сканер подключён, но нет доступа к нему";
-            css = "warning";
-            break;
-        default:
-            icon = "dialog-error-symbolic";
-            text = "Сканер не подключён";
-            css = "error";
-            break;
+            case ReaderState.CONNECTED:
+                icon = "media-record-symbolic";
+                text = "Сканер подключён";
+                css = "success";
+                idle_title.label = "Сканер подключен и готов к чтению карточек";
+                idle_hint.label = "Все готово. Карточки будут читаться";
+                break;
+
+            case ReaderState.NO_ACCESS:
+                icon = "dialog-warning-symbolic";
+                text = "Сканер подключён, но нет доступа к нему";
+                css = "warning";
+                idle_title.label = "Сканер подключен но требуется настройка";
+                idle_hint.label = "Нажмите настроить";
+                break;
+
+            default: // не подключён
+                icon = "dialog-error-symbolic";
+                text = "Сканер не подключён";
+                css = "error";
+                idle_title.label = "Подключите сканер";
+                idle_hint.label = "";
+                break;
         }
         reader_icon.icon_name = icon;
         reader_icon.tooltip_text = text;
