@@ -26,6 +26,9 @@ public class MainWindow : MainWindowUi {
     // База занята другой программой: проверка, отпустила ли она базу, и уведомление
     private uint busy_check = 0;
     private uint32 busy_notification = 0;
+    // Уведомление «Сканер отключён» — когда окно не активно и сканер пропал
+    private ReaderState reader_state = ReaderState.CONNECTED;
+    private uint32 reader_notification = 0;
 
     // Одна строка списка «Последние выдачи»: выдача или неизвестная карточка
     private class Issue {
@@ -56,6 +59,7 @@ public class MainWindow : MainWindowUi {
         card_presented.connect ((card) => show_student (card));
         reader.card_read.connect ((card) => card_presented (card));
         reader.notify["state"].connect (update_reader_status);
+        reader_state = reader.state;  // без уведомления при запуске: окно ещё не показано
         update_reader_status ();
         show_idle ();
     }
@@ -125,6 +129,22 @@ public class MainWindow : MainWindowUi {
 
         reader_banner.title = text;
         reader_banner.revealed = reader.state != ReaderState.CONNECTED;
+        notify_reader_lost ();
+    }
+
+    // Сканер отключили, а окно свёрнуто или под другим — карточки не читаются,
+    // а полосы не видно. Подключили снова — уведомление убрать.
+    private void notify_reader_lost () {
+        var was = reader_state;
+        reader_state = reader.state;
+        if (reader_state == ReaderState.CONNECTED) {
+            App.close_desktop_notification (reader_notification);
+            reader_notification = 0;
+        } else if (was == ReaderState.CONNECTED && !is_active) {
+            reader_notification = App.send_desktop_notification ("Сканер отключён",
+                "Карточки не читаются. Подключите сканер заново.",
+                "dialog-error-symbolic", reader_notification);
+        }
     }
 
     // --- Карточка состояния ---
