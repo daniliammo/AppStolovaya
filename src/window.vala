@@ -146,6 +146,8 @@ public class MainWindow : MainWindowUi {
         reader_icon.add_css_class (css);
 
         reader_banner.title = text;
+        // Сканера нет совсем — настройка не поможет, кнопку не показываем
+        reader_banner.button_label = reader.device_path != null ? "Настроить" : null;
         reader_banner.revealed = reader.state != ReaderState.CONNECTED;
         notify_reader_lost ();
     }
