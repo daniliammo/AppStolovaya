@@ -43,6 +43,8 @@ public class CardRead {
 public class CardReader : Object {
     public ReaderState state { get; private set; default = ReaderState.DISCONNECTED; }
     public string? device_path { get; private set; }
+    // Почему порт не открылся (errno) — для состояния UNAVAILABLE
+    public int open_error { get; private set; }
 
     // Приложили карточку: одно событие на прикладывание (до «No card»)
     public signal void card_read (CardRead card);
@@ -73,38 +75,62 @@ public class CardReader : Object {
             change_state (ReaderState.DISCONNECTED, null);
             return;
         }
-        if (!open_port (path)) {
-            change_state (Posix.errno == Posix.EACCES ? ReaderState.NO_ACCESS : ReaderState.DISCONNECTED, path);
+        var error = open_port (path);
+        switch (error) {
+            case 0:
+                change_state (ReaderState.CONNECTED, path);
+                break;
+            case Posix.EACCES:
+                change_state (ReaderState.NO_ACCESS, path);
+                break;
+            case Posix.ENOENT:
+            case Posix.ENODEV:
+            case Posix.ENXIO:
+                // Устройство пропало между поиском и открытием
+                change_state (ReaderState.DISCONNECTED, null);
+                break;
+            default:
+                // Есть, но не открывается: например, порт занят ModemManager
+                change_state (ReaderState.UNAVAILABLE, path, error);
+                break;
+        }
+    }
+
+    private void change_state (ReaderState new_state, string? path, int error = 0) {
+        if (state == new_state && device_path == path && open_error == error) {
             return;
         }
-        change_state (ReaderState.CONNECTED, path);
-    }
-
-    private void change_state (ReaderState new_state, string? path) {
-        if (state != new_state || device_path != path) {
-            device_path = path;
+        device_path = path;
+        open_error = error;
+        if (state != new_state) {
             state = new_state;
+        } else {
+            notify_property ("state");  // то же состояние, но другая ошибка
         }
     }
 
-    private bool open_port (string path) {
+    // Открыть и настроить порт. Возвращает 0 или errno.
+    private int open_port (string path) {
         var new_fd = Posix.open (path, Posix.O_RDWR | Posix.O_NOCTTY | Posix.O_NONBLOCK);
         if (new_fd < 0) {
-            return false;
+            return Posix.errno;
         }
 
+        // errno запоминаем до close (): он может его затереть
         Posix.termios tio;
         if (Posix.tcgetattr (new_fd, out tio) != 0) {
+            var error = Posix.errno;
             Posix.close (new_fd);
-            return false;
+            return error;
         }
         Posix.cfmakeraw (ref tio);
         Posix.cfsetispeed (ref tio, Posix.B9600);
         Posix.cfsetospeed (ref tio, Posix.B9600);
         tio.c_cflag |= Posix.CLOCAL | Posix.CREAD;
         if (Posix.tcsetattr (new_fd, Posix.TCSANOW, tio) != 0) {
+            var error = Posix.errno;
             Posix.close (new_fd);
-            return false;
+            return error;
         }
         Posix.tcflush (new_fd, Posix.TCIOFLUSH);
 
@@ -113,7 +139,7 @@ public class CardReader : Object {
         card_present = false;
         channel = new IOChannel.unix_new (fd);
         watch_id = channel.add_watch (IOCondition.IN | IOCondition.HUP | IOCondition.ERR | IOCondition.NVAL, on_data);
-        return true;
+        return 0;
     }
 
     private void close_port () {

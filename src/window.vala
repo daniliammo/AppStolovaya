@@ -123,6 +123,16 @@ public class MainWindow : MainWindowUi {
                 idle_hint.label = "Нажмите настроить";
                 break;
 
+            case ReaderState.UNAVAILABLE:
+                icon = "dialog-warning-symbolic";
+                text = reader.open_error == Posix.EBUSY
+                    ? "Сканер подключён, но занят другой программой"
+                    : "Сканер подключён, но не открывается: %s".printf (strerror (reader.open_error));
+                css = "warning";
+                idle_title.label = "Сканер подключен но не открывается";
+                idle_hint.label = "Закройте другие программы, работающие со сканером, или нажмите настроить";
+                break;
+
             default: // не подключён
                 icon = "dialog-error-symbolic";
                 text = "Сканер не подключён";
