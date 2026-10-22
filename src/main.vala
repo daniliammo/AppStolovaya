@@ -164,6 +164,9 @@ public class App : Adw.Application {
                 replace_export_notification (export_title (exported_files.length),
                     string.joinv ("\n", exported_files));
             }
+            else {
+                replace_export_notification ("Excel файлы не записаны", "Нечего записывать нового");
+            }
         }
         base.shutdown ();
     }
