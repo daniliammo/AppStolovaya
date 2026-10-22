@@ -1,5 +1,5 @@
 // Главное окно: ожидание карточки, карточка ученика, результат выдачи,
-// счётчики и последние выдачи за сегодня.
+// счётчики и Последние считывания за сегодня.
 // Разметка — в main_window_ui.vala (MainWindowUi),
 // здесь только логика: обновление виджетов и обработчики сигналов.
 
@@ -30,7 +30,7 @@ public class MainWindow : MainWindowUi {
     private ReaderState reader_state = ReaderState.CONNECTED;
     private uint32 reader_notification = 0;
 
-    // Одна строка списка «Последние выдачи»: выдача или неизвестная карточка
+    // Одна строка списка «Последние считывания»: выдача или неизвестная карточка
     private class Issue {
         public string time;  // 'HH:MM:SS'
         public DayRecord? record;  // кто получил; null — карточки нет в базе
@@ -363,9 +363,9 @@ public class MainWindow : MainWindowUi {
         dialog.present (this);
     }
 
-    // --- Счётчики и последние выдачи ---
+    // --- Счётчики и Последние считывания ---
 
-    // Счётчики и последние выдачи за сегодня. Вызывать после списания,
+    // Счётчики и Последние считывания за сегодня. Вызывать после списания,
     // при смене дня и при смене приёма пищи.
     public void update_counts () {
         var now = new DateTime.now_local ();
@@ -413,7 +413,7 @@ public class MainWindow : MainWindowUi {
         remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
     }
 
-    // Последние выдачи из записей дня: каждый завтрак и обед отдельно,
+    // Последние считывания из записей дня: каждый завтрак и обед отдельно,
     // вперемешку с неизвестными карточками, новые сверху
     private void update_recent (GenericArray<DayRecord> records, GenericArray<UnknownCard> unknown) {
         var issues = new GenericArray<Issue> ();
@@ -430,7 +430,7 @@ public class MainWindow : MainWindowUi {
         }
         issues.sort ((a, b) => strcmp (b.time, a.time));
 
-        // remove_all () убрал бы и заглушку «Сегодня ещё никто не получал»
+        // remove_all () убрал бы и заглушку «Сегодня ещё не прикладывались карточки»
         Gtk.ListBoxRow? old;
         while ((old = recent_list.get_row_at_index (0)) != null) {
             recent_list.remove (old);
@@ -519,7 +519,7 @@ public class MainWindow : MainWindowUi {
         // В полночь счётчики обнуляются: за новый день выдачи ещё не было.
         // С началом обеда «Осталось» считается уже по обедам.
         // Базу поправили другой программой (переименовали ученика в DB Browser,
-        // добавили учеников) — «Последние выдачи» и «Осталось» пересчитать
+        // добавили учеников) — «Последние считывания» и «Осталось» пересчитать
         int64 version = data_version;
         try {
             version = database.data_version ();

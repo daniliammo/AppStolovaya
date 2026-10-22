@@ -2,7 +2,7 @@
 // Логика — в window.vala (класс MainWindow наследует MainWindowUi).
 //
 // Слева большая карточка состояния (Gtk.Stack) и счётчики под ней,
-// справа — последние выдачи. Карточка состояния переключается между
+// справа — Последние считывания. Карточка состояния переключается между
 // страницами «ожидание», «ученик» и «результат»; цвет результата задаётся
 // классами status-ok / status-again / status-unknown (стили — в styles.vala).
 
@@ -50,7 +50,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Label remaining_caption;
     protected Gtk.ProgressBar remaining_progress;
 
-    // Последние выдачи
+    // Последние считывания
     protected Gtk.ListBox recent_list;
 
 #if DEBUG
@@ -374,9 +374,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
 
     // Справа: пять последних выдач за сегодня, новые сверху
     private Gtk.Widget build_recent_panel () {
-        var heading = new Gtk.Label ("Последние выдачи") {
-            xalign = 0
-        };
+        var heading = new Gtk.Label ("Последние считывания");
         heading.add_css_class ("heading");
 
         // Список только для просмотра: без выделения и фокуса
@@ -387,7 +385,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         };
         recent_list.add_css_class ("boxed-list");
 
-        var placeholder = new Gtk.Label ("Сегодня ещё никто не получал") {
+        var placeholder = new Gtk.Label ("Сегодня ещё не прикладывались карточки") {
             wrap = true,
             margin_top = 18,
             margin_bottom = 18,
