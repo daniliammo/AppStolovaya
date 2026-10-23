@@ -68,8 +68,7 @@ public class HistoryDialog : HistoryDialogUi {
         foreach (var record in records) {
             list.append (build_record_row (record));
         }
-        day_totals = "Учеников: %u · завтраков: %d · обедов: %d".printf (
-            records.length, counts.breakfasts, counts.lunches);
+        day_totals = @"Учеников: $(records.length) · завтраков: $(counts.breakfasts) · обедов: $(counts.lunches)";
         stack.visible_child_name = records.length > 0 ? "list" : "empty";
         update_totals ();
     }
@@ -86,7 +85,7 @@ public class HistoryDialog : HistoryDialogUi {
                 found++;
             }
         }
-        totals_label.label = "%s · найдено: %u".printf (day_totals, found);
+        totals_label.label = @"$day_totals · найдено: $found";
     }
 
     // Отметить в календаре дни показанного месяца, когда была выдача
@@ -107,7 +106,7 @@ public class HistoryDialog : HistoryDialogUi {
             return true;
         }
         var record_row = (Adw.ActionRow) row;
-        var text = "%s %s".printf (record_row.title, record_row.subtitle).casefold ();
+        var text = @"$(record_row.title) $(record_row.subtitle)".casefold ();
         return query in text;
     }
 

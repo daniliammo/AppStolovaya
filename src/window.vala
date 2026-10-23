@@ -82,7 +82,7 @@ public class MainWindow : MainWindowUi {
         test_card.activate.connect ((parameter) => simulate_card (parameter.get_int32 ()));
         add_action (test_card);
         for (int i = 1; i <= 3; i++) {
-            app.set_accels_for_action ("win.test-card(%d)".printf (i), { "<Control>%d".printf (i) });
+            app.set_accels_for_action (@"win.test-card($i)", { @"<Control>$i" });
         }
 #endif
     }
@@ -127,7 +127,7 @@ public class MainWindow : MainWindowUi {
                 icon = "dialog-warning-symbolic";
                 text = reader.open_error == Posix.EBUSY
                     ? "Сканер подключён, но занят другой программой"
-                    : "Сканер подключён, но не открывается: %s".printf (strerror (reader.open_error));
+                    : @"Сканер подключён, но не открывается: $(strerror (reader.open_error))";
                 css = "warning";
                 idle_title.label = "Сканер подключен но не открывается";
                 idle_hint.label = "Закройте другие программы, работающие со сканером, или нажмите настроить";
@@ -234,15 +234,15 @@ public class MainWindow : MainWindowUi {
         student_hint.label = hint;
         student_hint.visible = hint != "";
 
-        primary_button.label = "Выдать " + meal_name (primary_meal).down ();
+        primary_button.label = @"Выдать $(meal_name (primary_meal).down ())";
         secondary_button.visible = secondary_meal != null;
         if (secondary_meal != null) {
             var type = (MealType) secondary_meal;
             var at = received_at (day, type);
             secondary_button.sensitive = at == null;
             secondary_button.label = at == null
-                ? "Выдать " + meal_name (type).down ()
-                : "%s уже получен в %s".printf (meal_name (type), at.substring (0, 5));
+                ? @"Выдать $(meal_name (type).down ())"
+                : @"$(meal_name (type)) уже получен в $(at.substring (0, 5))";
         }
 
         set_status_class (null);
@@ -250,7 +250,7 @@ public class MainWindow : MainWindowUi {
         primary_button.grab_focus ();  // Enter выдаёт основной приём пищи
         schedule_return (STUDENT_SECONDS);
         notify_if_inactive ("auth-smartcard-symbolic", found.full_name,
-            "%s · %s — в окне программы".printf (found.group_name, primary_button.label.down ()));
+            @"$(found.group_name) · $(primary_button.label.down ()) — в окне программы");
     }
 
     protected override void on_primary_clicked () {
@@ -278,8 +278,8 @@ public class MainWindow : MainWindowUi {
             if (database.record_meal (who.id, type, now)) {
                 update_counts ();
                 show_result ("status-ok", "object-select-symbolic",
-                    "%s выдан, %s".printf (meal_name (type), now.format ("%H:%M")),
-                    "%s · %s".printf (who.full_name, who.group_name));
+                    @"$(meal_name (type)) выдан, $(now.format ("%H:%M"))",
+                    @"$(who.full_name) · $(who.group_name)");
             } else {
                 // Успели списать раньше (двойное нажатие или второй считыватель)
                 var at = received_at (database.student_day (who, now), type);
@@ -306,8 +306,8 @@ public class MainWindow : MainWindowUi {
 
     private void show_already (Student who, MealType type, string at) {
         show_result ("status-again", "dialog-error-symbolic",
-            "%s уже получен в %s".printf (meal_name (type), at.substring (0, 5)),
-            "%s · %s".printf (who.full_name, who.group_name));
+            @"$(meal_name (type)) уже получен в $(at.substring (0, 5))",
+            @"$(who.full_name) · $(who.group_name)");
     }
 
     // Цветной результат на всю карточку; через несколько секунд — снова ожидание
@@ -423,7 +423,7 @@ public class MainWindow : MainWindowUi {
         }
         var issued = meal == MealType.BREAKFAST ? counts.breakfasts : counts.lunches;
         remaining_caption.label = meal == MealType.BREAKFAST ? "Осталось на завтрак" : "Осталось на обед";
-        remaining_label.label = "%d из %d".printf (int.max (total - issued, 0), total);
+        remaining_label.label = @"$(int.max (total - issued, 0)) из $total";
         remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
     }
 
@@ -459,13 +459,12 @@ public class MainWindow : MainWindowUi {
                 // ФИО и группу могли поменять после выдачи — тогда видно и прежние
                 var record = item.record;
                 row.title = Styles.changed_markup (record.issued_name, record.student.full_name);
-                row.subtitle = "%s · %s".printf (meal_name (item.type),
-                    Styles.changed_markup (record.issued_group, record.student.group_name));
+                row.subtitle = @"$(meal_name (item.type)) · $(Styles.changed_markup (record.issued_group, record.student.group_name))";
                 row.tooltip_text = record.change_note ();
                 row.add_prefix (new Adw.Avatar (32, record.student.full_name, true));
             } else {
                 row.title = "Неизвестная карточка";
-                row.subtitle = "%s · номер %s".printf (Markup.escape_text (item.card.card_type), item.card.uid.to_string ());
+                row.subtitle = @"$(Markup.escape_text (item.card.card_type)) · номер $(item.card.uid)";
                 var icon = new Gtk.Image.from_icon_name ("dialog-question-symbolic") {
                     pixel_size = 32
                 };
@@ -489,7 +488,7 @@ public class MainWindow : MainWindowUi {
         if (e is DatabaseError.BUSY) {
             show_database_busy ();
         } else {
-            show_toast ("Ошибка базы данных: " + e.message);
+            show_toast (@"Ошибка базы данных: $(e.message)");
         }
     }
 
@@ -570,7 +569,7 @@ public class MainWindow : MainWindowUi {
         var text = card_entry.text.strip ();
         int64 uid = 0;
         if (!text.get_char (0).isdigit () || !int64.try_parse (text, out uid, null, 10) || uid > MAX_UID) {
-            show_toast ("Номер карточки — целое число от 0 до %d".printf (MAX_UID));
+            show_toast (@"Номер карточки — целое число от 0 до $MAX_UID");
             return;
         }
         card_entry.text = "";

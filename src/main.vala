@@ -359,22 +359,23 @@ public class App : Adw.Application {
             }
             if (!(user.path in files)) {
                 files += user.path;
-                names += "«%s»".printf (Path.get_basename (user.path));
+                names += @"«$(Path.get_basename (user.path))»";
             }
         }
         var program = string.joinv (", ", programs);
         var several = programs.length > 1;
         var one_file = files.length == 1;
         // Имена программ — в именительном падеже: «в программе LibreOffice»
-        var where = (several ? "в программах " : "в программе ") + program;
+        var where = @"$(several ? "в программах" : "в программе") $program";
 
+        var list = string.joinv (", ", names);
         string body;
         if (stale) {
             body = one_file
-                ? "Файл %s обновлён, а %s открыта его старая версия. Если сохранить файл там, новые записи из него пропадут.".printf (names[0], where)
-                : "Файлы %s обновлены, а %s открыты их старые версии. Если сохранить файлы там, новые записи из них пропадут.".printf (string.joinv (", ", names), where);
+                ? @"Файл $list обновлён, а $where открыта его старая версия. Если сохранить файл там, новые записи из него пропадут."
+                : @"Файлы $list обновлены, а $where открыты их старые версии. Если сохранить файлы там, новые записи из них пропадут.";
         } else {
-            body = (one_file ? "Файл %s открыт %s." : "Файлы %s открыты %s.").printf (string.joinv (", ", names), where)
+            body = (one_file ? @"Файл $list открыт $where." : @"Файлы $list открыты $where.")
                 + " «Столовая» пересобирает Excel-файлы в полночь, при закрытии и по команде «Обновить Excel-файл»:"
                 + " открытая копия при этом не обновится, а если сохранить её, новые записи пропадут из файла.";
         }
@@ -384,7 +385,7 @@ public class App : Adw.Application {
         var heading = one_file ? "Excel-файл открыт в другой программе" : "Excel-файлы открыты в другой программе";
         open_dialog = new Adw.AlertDialog (heading, body);
         open_dialog.add_response ("keep", "Не закрывать");
-        open_dialog.add_response ("close", several ? "Закрыть программы" : "Закрыть " + program);
+        open_dialog.add_response ("close", several ? "Закрыть программы" : @"Закрыть $program");
         open_dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
         open_dialog.default_response = "keep";
         open_dialog.close_response = "keep";
@@ -398,8 +399,8 @@ public class App : Adw.Application {
 
         // Окно «Столовой», скорее всего, под LibreOffice — окно предупреждения не видно
         if (!window.is_active) {
-            send_desktop_notification (heading, "%s %s. Подробности — в окне «Столовой».".printf (
-                one_file ? "Открыт" : "Открыты", where), "dialog-warning-symbolic");
+            send_desktop_notification (heading, @"$(one_file ? "Открыт" : "Открыты") $where. Подробности — в окне «Столовой».",
+                "dialog-warning-symbolic");
         }
     }
 
@@ -418,12 +419,12 @@ public class App : Adw.Application {
 
             var window = active_window as MainWindow;
             if (still_open) {
-                window?.show_toast ("%s не %s — закройте вручную".printf (program, several ? "закрываются" : "закрывается"));
+                window?.show_toast (@"$program не $(several ? "закрываются" : "закрывается") — закройте вручную");
             } else {
                 foreach (var file in files) {
                     FileUsers.remove_stale_lock (file);
                 }
-                window?.show_toast ("%s %s".printf (program, several ? "закрыты" : "закрыт"));
+                window?.show_toast (@"$program $(several ? "закрыты" : "закрыт")");
             }
             return Source.REMOVE;
         });

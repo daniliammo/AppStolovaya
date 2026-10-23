@@ -95,8 +95,7 @@ namespace Styles {
         if (then == now) {
             return Markup.escape_text (now);
         }
-        return "<span strikethrough=\"true\" alpha=\"50%%\">%s</span> %s".printf (
-            Markup.escape_text (then), Markup.escape_text (now));
+        return @"<span strikethrough=\"true\" alpha=\"50%\">$(Markup.escape_text (then))</span> $(Markup.escape_text (now))";
     }
 
     public void load () {

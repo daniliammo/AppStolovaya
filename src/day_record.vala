@@ -23,12 +23,10 @@ public class DayRecord {
     public string? change_note () {
         string[] lines = {};
         if (name_changed) {
-            lines += "ФИО изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
-                issued_name, student.full_name);
+            lines += @"ФИО изменили после выдачи: в день выдачи — «$issued_name», сейчас — «$(student.full_name)».";
         }
         if (group_changed) {
-            lines += "Группу изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
-                issued_group, student.group_name);
+            lines += @"Группу изменили после выдачи: в день выдачи — «$issued_group», сейчас — «$(student.group_name)».";
         }
         if (lines.length == 0) {
             return null;

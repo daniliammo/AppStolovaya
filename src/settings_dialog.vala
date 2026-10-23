@@ -25,7 +25,7 @@ public class SettingsDialog : SettingsDialogUi {
         var configured = SystemSetup.rules_installed ();
 
         reader_row.subtitle = reader != null
-            ? "Подключён: %s".printf (reader)
+            ? @"Подключён: $reader"
             : "Не найден — подключите считыватель к USB";
 
         if (reader == null) {
