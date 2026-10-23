@@ -23,7 +23,7 @@ void assert_xlsx (string path) throws Error {
     FileUtils.get_data (path, out data);
     assert_true (data.length > 100);
     assert_true (data[0] == 'P' && data[1] == 'K');
-    assert_false (FileUtils.test (path + ".tmp", FileTest.EXISTS));
+    assert_false (FileUtils.test (@"$path.tmp", FileTest.EXISTS));
 }
 
 void test_export_changed () throws Error {
@@ -124,7 +124,7 @@ int main (string[] args) {
     foreach (var name in new string[] { "Столовая", "Сбой", "Переименование" }) {
         var dir = Path.build_filename (tmp_dir, name);
         foreach (var year in new int[] { 2023, 2024, 2025 }) {
-            FileUtils.remove (Path.build_filename (dir, "столовая_%d-%d.xlsx".printf (year, year + 1)));
+            FileUtils.remove (Path.build_filename (dir, @"столовая_$year-$(year + 1).xlsx"));
         }
         DirUtils.remove (dir);
     }

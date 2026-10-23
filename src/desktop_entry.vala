@@ -28,7 +28,7 @@ namespace DesktopEntry {
                     .replace (ICON_DARK, hex (mix (accent, 0, 0.15f)));
             }
             var theme = Path.build_filename (data, "icons", "hicolor");
-            if (write_if_changed (Path.build_filename (theme, "scalable", "apps", ID + ".svg"), icon.data)) {
+            if (write_if_changed (Path.build_filename (theme, "scalable", "apps", @"$ID.svg"), icon.data)) {
                 // GNOME Shell перечитывает значки, только когда меняется время
                 // изменения папки темы, а не вложенных папок
                 File.new_for_path (theme).set_attribute_uint64 (FileAttribute.TIME_MODIFIED,
@@ -46,7 +46,7 @@ Terminal=false
 Categories=Office;
 StartupNotify=true
 """.printf (quote_exec (exe), ID);
-            write_if_changed (Path.build_filename (data, "applications", ID + ".desktop"), entry.data);
+            write_if_changed (Path.build_filename (data, "applications", @"$ID.desktop"), entry.data);
         } catch (Error e) {
             warning ("Ярлык программы: %s", e.message);
         }
@@ -89,6 +89,6 @@ StartupNotify=true
             }
             escaped.append_c ((char) c);
         }
-        return "\"%s\"".printf (escaped.str);
+        return @"\"$(escaped.str)\"";
     }
 }

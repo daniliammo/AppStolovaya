@@ -29,7 +29,7 @@ namespace FileUsers {
             if (dir != null) {
                 var real_path = Path.build_filename (dir, Path.get_basename (path));
                 targets[real_path] = path;
-                targets[real_path + " (deleted)"] = path;
+                targets[@"$real_path (deleted)"] = path;
             }
         }
         if (targets.size () == 0) {
@@ -68,14 +68,14 @@ namespace FileUsers {
     public void remove_stale_lock (string path) {
         if (find (path).length == 0) {
             FileUtils.remove (Path.build_filename (Path.get_dirname (path),
-                ".~lock." + Path.get_basename (path) + "#"));
+                @".~lock.$(Path.get_basename (path))#"));
         }
     }
 
     // Какие из искомых файлов процесс держит открытыми, без повторов
     private string[] held_files (int pid, HashTable<string, string> targets) {
         string[] result = {};
-        var fd_dir = "/proc/%d/fd".printf (pid);
+        var fd_dir = @"/proc/$pid/fd";
         Dir fds;
         try {
             fds = Dir.open (fd_dir);
@@ -99,7 +99,7 @@ namespace FileUsers {
     private string program_name (int pid) {
         string comm = "";
         try {
-            FileUtils.get_contents ("/proc/%d/comm".printf (pid), out comm);
+            FileUtils.get_contents (@"/proc/$pid/comm", out comm);
         } catch (FileError e) {
             // Процесс успел завершиться
         }
@@ -108,7 +108,7 @@ namespace FileUsers {
         case "soffice.bin":
             return "LibreOffice";
         case "":
-            return "процесс %d".printf (pid);
+            return @"процесс $pid";
         default:
             return comm;
         }

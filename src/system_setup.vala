@@ -62,7 +62,7 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", TAG+="uacce
     public bool can_access (string path) {
         try {
             var info = File.new_for_path (path).query_info (
-                FileAttribute.ACCESS_CAN_READ + "," + FileAttribute.ACCESS_CAN_WRITE,
+                @"$(FileAttribute.ACCESS_CAN_READ),$(FileAttribute.ACCESS_CAN_WRITE)",
                 FileQueryInfoFlags.NONE);
             return info.get_attribute_boolean (FileAttribute.ACCESS_CAN_READ)
                 && info.get_attribute_boolean (FileAttribute.ACCESS_CAN_WRITE);
@@ -112,7 +112,7 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", TAG+="uacce
 
         try {
             // 1. Правило udev (во временный файл, затем замена одной операцией)
-            var tmp = RULES_FILE + ".tmp";
+            var tmp = @"$RULES_FILE.tmp";
             FileUtils.set_contents (tmp, RULES_TEXT);
             FileUtils.chmod (tmp, 0644);
             if (FileUtils.rename (tmp, RULES_FILE) != 0) {

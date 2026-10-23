@@ -25,7 +25,7 @@ public class CardRead {
         // пока из match достают группы
         var text = line.strip ();
         MatchInfo match;
-        print (line + "\n");
+        print (@"$line\n");
         if (!/^([A-Za-z-]+)\[([0-9A-Fa-f]+)\]\s+(\d{1,3}),(\d{1,5})(?:\s+.*)?$/.match (text, 0, out match)) {
             return null;
         }

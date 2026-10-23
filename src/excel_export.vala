@@ -34,7 +34,7 @@ public class ExcelExporter {
     }
 
     public string file_for_school_year (int school_year) {
-        return Path.build_filename (directory, "столовая_%d-%d.xlsx".printf (school_year, school_year + 1));
+        return Path.build_filename (directory, @"столовая_$school_year-$(school_year + 1).xlsx");
     }
 
     // Пересобрать файлы учебных лет, где после прошлой выгрузки были новые
@@ -76,7 +76,7 @@ public class ExcelExporter {
         }
 
         var path = file_for_school_year (school_year);
-        var tmp_path = path + ".tmp";
+        var tmp_path = @"$path.tmp";
         var workbook = Xlsx.Workbook.create (tmp_path);
         if (workbook == null) {
             throw new ExportError.FAILED ("Не удалось создать файл %s", tmp_path);
@@ -257,7 +257,7 @@ public class ExcelExporter {
             sheet.write_string (row, col, now);
             return;
         }
-        var rest = " " + now;
+        var rest = @" $now";
         var old_part = Xlsx.RichString () { format = struck, text = then };
         var new_part = Xlsx.RichString () { format = null, text = rest };
         Xlsx.RichString*[] parts = { &old_part, &new_part, null };

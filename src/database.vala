@@ -424,7 +424,7 @@ public class Database {
             exec ("BEGIN");
             try {
                 exec (MIGRATIONS[version]);
-                exec ("PRAGMA user_version = %d".printf (version + 1));
+                exec (@"PRAGMA user_version = $(version + 1)");
                 exec ("COMMIT");
             } catch (DatabaseError e) {
                 db.exec ("ROLLBACK");

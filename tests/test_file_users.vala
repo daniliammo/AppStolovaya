@@ -30,7 +30,7 @@ void test_find_and_terminate () throws Error {
     assert_cmpstr (users[0].name, CompareOperator.EQ, "sleep");
 
     // Выгрузка заменила файл — программа держит старый, это тоже считается
-    var tmp_path = path + ".tmp";
+    var tmp_path = @"$path.tmp";
     FileUtils.set_contents (tmp_path, "новый");
     FileUtils.rename (tmp_path, path);
     assert_cmpint (FileUsers.find (path).length, CompareOperator.EQ, 1);
