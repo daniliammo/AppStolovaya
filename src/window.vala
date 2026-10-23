@@ -35,7 +35,7 @@ public class MainWindow : MainWindowUi {
         public string time;  // 'HH:MM:SS'
         public DayRecord? record;  // кто получил; null — карточки нет в базе
         public MealType type;
-        public UnknownCard? card;  // неизвестная карточка (когда record — null)
+        public CardRead? card;  // неизвестная карточка (когда record — null)
     }
 
     // Приложили карточку (настоящую или в тестовом режиме)
@@ -295,13 +295,7 @@ public class MainWindow : MainWindowUi {
     // Если записать не удалось, предупреждение о карточке всё равно показываем.
     private void show_unknown (CardRead card, DateTime now) {
         try {
-            database.record_unknown_card (new UnknownCard () {
-                raw = card.raw,
-                card_type = card.card_type,
-                code = card.code,
-                series = card.series,
-                number = card.number
-            }, now);
+            database.record_unknown_card (card, now);
             update_counts ();
         } catch (DatabaseError e) {
             show_database_error (e);
@@ -435,7 +429,7 @@ public class MainWindow : MainWindowUi {
 
     // Последние считывания из записей дня: каждый завтрак и обед отдельно,
     // вперемешку с неизвестными карточками, новые сверху
-    private void update_recent (GenericArray<DayRecord> records, GenericArray<UnknownCard> unknown) {
+    private void update_recent (GenericArray<DayRecord> records, GenericArray<CardRead> unknown) {
         var issues = new GenericArray<Issue> ();
         foreach (var record in records) {
             if (record.breakfast_at != null) {

@@ -52,11 +52,22 @@ resources = import('gnome').compile_resources('resources',
   source_dir: 'data',
 )
 
+# База и её типы — нужны всем, кто собирает src/database.vala
+database_sources = files(
+  'src/database.vala',
+  'src/database_error.vala',
+  'src/student.vala',
+  'src/meal_type.vala',
+  'src/card_read.vala',
+  'src/day_record.vala',
+  'src/meal_counts.vala',
+)
+
 app = executable('Столовая',
   'src/main.vala',
   resources,
   config_vala,
-  'src/database.vala',
+  database_sources,
   'src/excel_export.vala',
   'src/settings.vala',
   'src/styles.vala',
@@ -92,6 +103,7 @@ endif
 test('card-reader', executable('test-card-reader',
   config_vala,
   'src/system_setup.vala',
+  'src/card_read.vala',
   'src/card_reader.vala',
   'src/reader_state.vala',
   'tests/test_card_reader.vala',
@@ -99,20 +111,20 @@ test('card-reader', executable('test-card-reader',
 ))
 
 test('database', executable('test-database',
-  'src/database.vala',
+  database_sources,
   'tests/test_database.vala',
   dependencies: [glib_deps, sqlite_dep],
 ))
 
 test('excel-export', executable('test-excel-export',
-  'src/database.vala',
+  database_sources,
   'src/excel_export.vala',
   'tests/test_excel_export.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep, posix_dep],
 ))
 
 test('settings', executable('test-settings',
-  'src/database.vala',
+  database_sources,
   'src/settings.vala',
   'tests/test_settings.vala',
   dependencies: [glib_deps, sqlite_dep],
@@ -126,7 +138,7 @@ test('file-users', executable('test-file-users',
 
 # Пример выгрузки на выдуманных данных: ./build/demo-excel [папка]
 executable('demo-excel',
-  'src/database.vala',
+  database_sources,
   'src/excel_export.vala',
   'tools/demo_excel.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep, posix_dep],

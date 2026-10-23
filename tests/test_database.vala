@@ -71,10 +71,10 @@ void test_record_meal () throws Error {
 
 void test_unknown_cards () throws Error {
     var db = new Database (":memory:");
-    var em = new UnknownCard () {
+    var em = new CardRead () {
         raw = "Em-Marine[5500] 120,09886", card_type = "Em-Marine", code = "5500", series = 120, number = 9886
     };
-    var mifare = new UnknownCard () {
+    var mifare = new CardRead () {
         raw = "Mifare[658E6180045D85] 255,65535 UL (0144,00)", card_type = "Mifare",
         code = "658E6180045D85", series = 255, number = 65535
     };
@@ -96,7 +96,7 @@ void test_unknown_cards () throws Error {
 
     // Серия больше байта в базу не попадает
     try {
-        db.record_unknown_card (new UnknownCard () {
+        db.record_unknown_card (new CardRead () {
             raw = "", card_type = "Тест", code = "", series = 256, number = 0
         }, at (15, 9, 0));
         assert_not_reached ();

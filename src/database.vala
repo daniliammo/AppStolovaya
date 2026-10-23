@@ -1,92 +1,6 @@
 // База данных SQLite: ученики, журнал выдачи питания, неизвестные карточки,
 // отметки о выгрузках.
 // Все SQL-запросы программы собраны в этом файле.
-//
-// Дата и время хранятся строками в местном времени:
-// дата 'YYYY-MM-DD', время 'HH:MM:SS'. Их можно сравнивать как строки.
-
-public errordomain DatabaseError {
-    OPEN,
-    QUERY,
-    // Нарушено ограничение: номер карточки уже занят, пустое ФИО и т.п.
-    CONSTRAINT,
-    // Базу держит другая программа (DB Browser с незаписанными изменениями)
-    BUSY
-}
-
-public enum MealType {
-    BREAKFAST,
-    LUNCH;
-
-    public string to_db () {
-        return this == BREAKFAST ? "breakfast" : "lunch";
-    }
-}
-
-public class Student {
-    public int64 id;
-    public int64? card_uid;  // null — карточка ещё не привязана
-    public string full_name;
-    public string group_name;
-}
-
-// Кто и когда получил питание в выбранный день (для истории и выгрузки)
-public class DayRecord {
-    public Student student;       // каким ученик записан в базе сейчас
-    public string? breakfast_at;  // 'HH:MM:SS' или null, если не получал
-    public string? lunch_at;
-    // ФИО и группа в день выдачи — их могли поменять после
-    public string issued_name;
-    public string issued_group;
-
-    public bool name_changed {
-        get { return issued_name != student.full_name; }
-    }
-
-    public bool group_changed {
-        get { return issued_group != student.group_name; }
-    }
-
-    // Почему ФИО или группа показаны дважды (подсказка в окне, примечание
-    // в Excel); null — ничего не меняли
-    public string? change_note () {
-        string[] lines = {};
-        if (name_changed) {
-            lines += "ФИО изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
-                issued_name, student.full_name);
-        }
-        if (group_changed) {
-            lines += "Группу изменили после выдачи: в день выдачи — «%s», сейчас — «%s».".printf (
-                issued_group, student.group_name);
-        }
-        if (lines.length == 0) {
-            return null;
-        }
-        lines += "Зачёркнуто — как было в день выдачи.";
-        return string.joinv ("\n", lines);
-    }
-}
-
-// Приложили карточку, которой нет в базе: всё, что прочитал считыватель
-// (поля как в CardRead), и когда
-public class UnknownCard {
-    public string raw;         // строка от считывателя как есть
-    public string card_type;   // «Em-Marine», «Mifare» или «Тест» (тестовый режим)
-    public string code;        // число в квадратных скобках (hex)
-    public int series;         // серия, 0–255
-    public int number;         // номер, 0–65535
-    public string scanned_at;  // 'HH:MM:SS'
-
-    // Номер карточки, как в CardRead.uid
-    public int64 uid {
-        get { return (int64) series * 65536 + number; }
-    }
-}
-
-public struct MealCounts {
-    public int breakfasts;
-    public int lunches;
-}
 
 public class Database {
     // Миграции схемы по порядку. Номер применённой хранится в PRAGMA user_version.
@@ -357,7 +271,7 @@ public class Database {
 
     // Запомнить, что приложили карточку, которой нет в базе.
     // Время берётся из when, card.scanned_at не нужен.
-    public void record_unknown_card (UnknownCard card, DateTime when) throws DatabaseError {
+    public void record_unknown_card (CardRead card, DateTime when) throws DatabaseError {
         var stmt = prepare ("""
             INSERT INTO unknown_cards (raw, card_type, code, series, number, scan_date, scanned_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -373,15 +287,15 @@ public class Database {
     }
 
     // Неизвестные карточки, приложенные в этот день, по порядку прикладывания
-    public GenericArray<UnknownCard> unknown_cards (DateTime day) throws DatabaseError {
+    public GenericArray<CardRead> unknown_cards (DateTime day) throws DatabaseError {
         var stmt = prepare ("""
             SELECT raw, card_type, code, series, number, scanned_at FROM unknown_cards
             WHERE scan_date = ? ORDER BY id
         """);
         stmt.bind_text (1, format_date (day));
-        var result = new GenericArray<UnknownCard> ();
+        var result = new GenericArray<CardRead> ();
         while (step_row (stmt)) {
-            result.add (new UnknownCard () {
+            result.add (new CardRead () {
                 raw = stmt.column_text (0),
                 card_type = stmt.column_text (1),
                 code = stmt.column_text (2),
