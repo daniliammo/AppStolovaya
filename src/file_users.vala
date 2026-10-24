@@ -107,6 +107,8 @@ namespace FileUsers {
         switch (comm) {
         case "soffice.bin":
             return "LibreOffice";
+        case "sqlitebrowser":
+            return "DB Browser for SQLite";
         case "":
             return @"процесс $pid";
         default:
