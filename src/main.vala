@@ -418,6 +418,13 @@ public class App : Adw.Application {
             }
         });
         open_dialog.closed.connect (() => open_dialog = null);
+        watch_release (open_dialog, users, files,
+            released_message (programs, one_file ? "файл" : "файлы"), (dialog) => {
+                foreach (var file in files) {
+                    FileUsers.remove_stale_lock (file);
+                }
+                dialog.set_response_label ("keep", "Хорошо");
+            });
         open_dialog.present (window);
 
         // Окно «Столовой», скорее всего, под LibreOffice — окно предупреждения не видно
@@ -446,6 +453,53 @@ public class App : Adw.Application {
             done (!still_open);
             return Source.REMOVE;
         });
+    }
+
+    public delegate void FilesReleased (Adw.AlertDialog dialog);
+
+    // Пока окно-предупреждение открыто, следить, не закрыли ли программы сами
+    // (вручную, из их окна). Закрыли — вместо кнопки «Закрыть …» сообщение
+    // message, released меняет остальные кнопки.
+    private void watch_release (Adw.AlertDialog dialog, GenericArray<FileUser> users, owned string[] files,
+            string message, owned FilesReleased released) {
+        uint check = 0;
+        check = Timeout.add_seconds (1, () => {
+            if (still_held (users, files)) {
+                return Source.CONTINUE;
+            }
+            check = 0;
+            dialog.body = message;
+            dialog.remove_response ("close");
+            released (dialog);
+            return Source.REMOVE;
+        });
+        dialog.closed.connect (() => {
+            if (check != 0) {
+                Source.remove (check);
+                check = 0;
+            }
+        });
+    }
+
+    // Держит ли файлы хоть одна из этих программ. Программы, открывшие файлы
+    // позже, не в счёт: о них — отдельное предупреждение.
+    private static bool still_held (GenericArray<FileUser> users, string[] files) {
+        foreach (var holder in FileUsers.find_all (files)) {
+            foreach (var user in users) {
+                if (holder.pid == user.pid) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // what — в винительном падеже: «файл», «базу»
+    private static string released_message (string[] programs, string what) {
+        var program = string.joinv (", ", programs);
+        return programs.length > 1
+            ? @"Программы $program завершились и освободили $what."
+            : @"Программа $program завершилась и освободила $what.";
     }
 
     private void toast_programs_closed (bool closed, string program, bool several) {
@@ -505,6 +559,8 @@ public class App : Adw.Application {
                 close_programs (users, database_files (), (closed) => toast_programs_closed (closed, program, several));
             }
         });
+        watch_release (dialog, users, database_files (), released_message (programs, "базу"),
+            (alert) => alert.set_response_label ("keep", "Хорошо"));
         dialog.present (active_window);
     }
 
@@ -649,6 +705,12 @@ public class App : Adw.Application {
             error_dialog.add_response ("close", several ? "Закрыть программы" : @"Закрыть $program");
             error_dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
             error_dialog.default_response = "close";
+            watch_release (error_dialog, users, database_files (),
+                released_message (programs, "базу") + " Теперь «Столовая» может её открыть.", (dialog) => {
+                    dialog.add_response ("retry", "Открыть базу");
+                    dialog.set_response_appearance ("retry", Adw.ResponseAppearance.SUGGESTED);
+                    dialog.default_response = "retry";
+                });
         } else if (database_busy) {
             // Кто держит базу, не видно (программа другого пользователя)
             error_dialog.add_response ("retry", "Повторить");
