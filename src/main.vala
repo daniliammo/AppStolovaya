@@ -5,7 +5,11 @@ public class App : Adw.Application {
     private Database? database;
     private Settings? settings;
     private CardReader reader = new CardReader ();
+    private string database_path;
     private string? database_error;
+    private bool database_busy;  // не открылась, потому что занята другой программой
+    private Adw.ApplicationWindow? error_window = null;
+    private Adw.AlertDialog? error_dialog = null;
     private ExcelExporter? exporter;
 #if DEBUG
     private bool demo_data = true;
@@ -65,11 +69,18 @@ public class App : Adw.Application {
 
         // В переносимой сборке база — в папке данных пользователя
         // (~/.local/share/Столовая): переживает замену папки с программой
-        var path = Config.PORTABLE
+        database_path = Config.PORTABLE
             ? Path.build_filename (Environment.get_user_data_dir (), "Столовая", "canteen.db")
             : Config.DATABASE_PATH;
+        if (open_database ()) {
+            start_services ();
+        }
+    }
+
+    // false — не открылась, причина в database_error
+    private bool open_database () {
         try {
-            database = new Database (path);
+            database = new Database (database_path);
             settings = new Settings (database);
 #if DEBUG
             add_demo_students ();
@@ -78,10 +89,15 @@ public class App : Adw.Application {
         } catch (DatabaseError e) {
             database = null;
             database_error = e.message;
-            critical ("База данных %s: %s", path, e.message);
-            return;
+            database_busy = e is DatabaseError.BUSY;
+            critical ("База данных %s: %s", database_path, e.message);
+            return false;
         }
+        return true;
+    }
 
+    // Всё, что работает с базой: считыватель, выгрузка, действия меню
+    private void start_services () {
         reader.start ();
         watch_notifications ();
 
@@ -149,6 +165,7 @@ public class App : Adw.Application {
         if (first_start) {
             run_export ();
             check_open_files ();
+            check_database_users ();
         }
     }
 
@@ -390,7 +407,14 @@ public class App : Adw.Application {
         open_dialog.close_response = "keep";
         open_dialog.response.connect ((response) => {
             if (response == "close") {
-                close_programs (users, files, program, several);
+                close_programs (users, files, (closed) => {
+                    if (closed) {
+                        foreach (var file in files) {
+                            FileUsers.remove_stale_lock (file);
+                        }
+                    }
+                    toast_programs_closed (closed, program, several);
+                });
             }
         });
         open_dialog.closed.connect (() => open_dialog = null);
@@ -403,8 +427,11 @@ public class App : Adw.Application {
         }
     }
 
-    // Закрыть программы сигналом и подождать до 5 секунд, пока они отпустят файлы
-    private void close_programs (GenericArray<FileUser> users, string[] files, string program, bool several) {
+    public delegate void ProgramsClosed (bool closed);
+
+    // Закрыть программы сигналом и подождать до 5 секунд, пока они отпустят
+    // файлы. closed — отпустили.
+    private void close_programs (GenericArray<FileUser> users, owned string[] files, owned ProgramsClosed done) {
         foreach (var user in users) {
             FileUsers.terminate (user);
         }
@@ -416,17 +443,69 @@ public class App : Adw.Application {
                 return Source.CONTINUE;
             }
 
-            var window = active_window as MainWindow;
-            if (still_open) {
-                window?.show_toast (@"$program не $(several ? "закрываются" : "закрывается") — закройте вручную");
-            } else {
-                foreach (var file in files) {
-                    FileUsers.remove_stale_lock (file);
-                }
-                window?.show_toast (@"$program $(several ? "закрыты" : "закрыт")");
-            }
+            done (!still_open);
             return Source.REMOVE;
         });
+    }
+
+    private void toast_programs_closed (bool closed, string program, bool several) {
+        var window = active_window as MainWindow;
+        if (closed) {
+            window?.show_toast (@"$program $(several ? "закрыты" : "закрыт")");
+        } else {
+            window?.show_toast (@"$program не $(several ? "закрываются" : "закрывается") — закройте вручную");
+        }
+    }
+
+    // Имена программ без повторов: у одной программы может быть несколько процессов
+    // и открыто несколько файлов
+    private static string[] program_names (GenericArray<FileUser> users) {
+        var result = new string[0];
+        foreach (var user in users) {
+            if (!(user.name in result)) {
+                result += user.name;
+            }
+        }
+        return result;
+    }
+
+    // --- База открыта в другой программе ---
+    //
+    // Пока другая программа (DB Browser for SQLite) держит в базе незаписанные
+    // изменения, выдачи не записываются, а каждый запрос к базе ждёт до секунды —
+    // окно подвисает. А если она держит базу уже при запуске, базу не открыть.
+    // Предупреждаем при запуске и предлагаем закрыть программу.
+
+    // База и её спутники в режиме WAL: DB Browser держит открытыми все три
+    private string[] database_files () {
+        return { database_path, @"$database_path-wal", @"$database_path-shm" };
+    }
+
+    private void check_database_users () {
+        var users = FileUsers.find_all (database_files ());
+        if (users.length == 0) {
+            return;
+        }
+        var programs = program_names (users);
+        var program = string.joinv (", ", programs);
+        var several = programs.length > 1;
+        var where = @"$(several ? "в программах" : "в программе") $program";
+
+        var dialog = new Adw.AlertDialog ("База данных открыта в другой программе",
+            @"База «Столовой» открыта $where. Пока там есть незаписанные изменения,"
+            + " выдачи не записываются, а окно «Столовой» подвисает при каждом считывании карточки.\n\n"
+            + "При закрытии программы закроются все её окна, незаписанные изменения в них будут потеряны.");
+        dialog.add_response ("keep", "Не закрывать");
+        dialog.add_response ("close", several ? "Закрыть программы" : @"Закрыть $program");
+        dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
+        dialog.default_response = "keep";
+        dialog.close_response = "keep";
+        dialog.response.connect ((response) => {
+            if (response == "close") {
+                close_programs (users, database_files (), (closed) => toast_programs_closed (closed, program, several));
+            }
+        });
+        dialog.present (active_window);
     }
 
     // Нажатие кнопки в уведомлении приходит сигналом ActionInvoked, а перед ним
@@ -541,18 +620,69 @@ public class App : Adw.Application {
     }
 
     // Без базы работать нельзя: сообщаем об ошибке и выходим
+    // База не открылась. Если её держит другая программа — предложить закрыть
+    // её и открыть базу снова.
     private void show_database_error () {
-        var window = new Adw.ApplicationWindow (this) {
-            title = "Ошибка базы данных!",
-            default_width = 400,
-            default_height = 200
-        };
-        window.present ();
+        if (error_window == null) {
+            error_window = new Adw.ApplicationWindow (this) {
+                title = "Ошибка базы данных!",
+                default_width = 520,
+                default_height = 400
+            };
+        }
+        error_window.present ();
+        if (error_dialog != null) {
+            return;
+        }
 
-        var dialog = new Adw.AlertDialog ("Не удалось открыть базу данных", database_error);
-        dialog.add_response ("close", "Закрыть");
-        dialog.response.connect (() => quit ());
-        dialog.present (window);
+        var users = database_busy ? FileUsers.find_all (database_files ()) : new GenericArray<FileUser> ();
+        error_dialog = new Adw.AlertDialog ("Не удалось открыть базу данных", database_error);
+        error_dialog.add_response ("quit", "Выйти");
+        error_dialog.close_response = "quit";
+        if (users.length > 0) {
+            var programs = program_names (users);
+            var program = string.joinv (", ", programs);
+            var several = programs.length > 1;
+            error_dialog.body = @"База «Столовой» открыта $(several ? "в программах" : "в программе") $program"
+                + " и занята незаписанными изменениями. Закройте программу — тогда «Столовая» откроет базу.\n\n"
+                + "При закрытии программы закроются все её окна, незаписанные изменения в них будут потеряны.";
+            error_dialog.add_response ("close", several ? "Закрыть программы" : @"Закрыть $program");
+            error_dialog.set_response_appearance ("close", Adw.ResponseAppearance.DESTRUCTIVE);
+            error_dialog.default_response = "close";
+        } else if (database_busy) {
+            // Кто держит базу, не видно (программа другого пользователя)
+            error_dialog.add_response ("retry", "Повторить");
+            error_dialog.default_response = "retry";
+        }
+        error_dialog.response.connect ((response) => {
+            switch (response) {
+            case "close":
+                close_programs (users, database_files (), (closed) => retry_database ());
+                break;
+            case "retry":
+                retry_database ();
+                break;
+            default:
+                quit ();
+                break;
+            }
+        });
+        error_dialog.closed.connect (() => error_dialog = null);
+        error_dialog.present (error_window);
+    }
+
+    private void retry_database () {
+        if (!open_database ()) {
+            show_database_error ();
+            return;
+        }
+        start_services ();
+        // Окно ошибки — единственное: без hold программа завершится с ним
+        hold ();
+        error_window.destroy ();
+        error_window = null;
+        activate ();
+        release ();
     }
 
 #if DEBUG
