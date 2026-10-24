@@ -374,7 +374,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         return tile;
     }
 
-    // Справа: пять последних выдач за сегодня, новые сверху
+    // Справа: все считывания за сегодня, новые сверху; длинный список прокручивается
     private Gtk.Widget build_recent_panel () {
         var heading = new Gtk.Label ("Последние считывания");
         heading.add_css_class ("heading");
@@ -397,11 +397,17 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         placeholder.add_css_class ("dim-label");
         recent_list.set_placeholder (placeholder);
 
+        var scroller = new Gtk.ScrolledWindow () {
+            hscrollbar_policy = Gtk.PolicyType.NEVER,
+            vexpand = true,
+            child = recent_list
+        };
+
         var panel = new Gtk.Box (Gtk.Orientation.VERTICAL, 12) {
             width_request = 300
         };
         panel.append (heading);
-        panel.append (recent_list);
+        panel.append (scroller);
         return panel;
     }
 
