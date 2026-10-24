@@ -1,5 +1,5 @@
-// База данных SQLite: ученики, журнал выдачи питания, неизвестные карточки,
-// отметки о выгрузках.
+// База данных SQLite: ученики, карточки, журнал выдачи питания, прикладывания
+// неизвестных карточек, отметки о выгрузках.
 // Все SQL-запросы программы собраны в этом файле.
 
 public class Database {
@@ -82,8 +82,76 @@ public class Database {
                           - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
             FROM meals WHERE student_id = NEW.id;
         END;
+        """,
+        // 6: карточки — своей таблицей, и привязанные к ученикам (student_id),
+        // и неизвестные. Номер для базы (серия × 65536 + номер) не хранится —
+        // его считает CardRead.uid. Тип, код и строку считывателя импорт
+        // не знает: их записывает первое прикладывание карточки. Прикладывания
+        // неизвестных карточек — в unknown_scans.
+        //
+        // Данные карточки берутся из последнего прикладывания, где тип и код
+        // совпадают с началом строки считывателя: до 23.10.2026 разбор строки
+        // иногда записывал вместо них мусор (сама строка цела). Тестовый режим —
+        // только если настоящих прикладываний нет.
+        //
+        // students пересобирается без card_uid (DROP COLUMN не умеет столбцы
+        // с UNIQUE), а вместе с ней удаляется и триггер миграции 5 — он тут же
+        // создаётся заново.
+        """
+        CREATE TABLE cards (
+            id          INTEGER PRIMARY KEY,
+            series      INTEGER NOT NULL CHECK (series BETWEEN 0 AND 255),
+            number      INTEGER NOT NULL CHECK (number BETWEEN 0 AND 65535),
+            card_type   TEXT,
+            code        TEXT,
+            raw         TEXT,
+            student_id  INTEGER UNIQUE REFERENCES students (id),
+            UNIQUE (series, number)
+        );
+        INSERT INTO cards (series, number, student_id)
+        SELECT card_uid / 65536, card_uid % 65536, id FROM students WHERE card_uid IS NOT NULL;
+        INSERT OR IGNORE INTO cards (series, number) SELECT DISTINCT series, number FROM unknown_cards;
+        UPDATE cards SET (card_type, code, raw) = (
+            SELECT card_type, code, raw FROM unknown_cards AS u
+            WHERE u.series = cards.series AND u.number = cards.number
+              AND (substr (raw, 1, length (card_type) + length (code) + 2) = card_type || '[' || code || ']'
+                   OR card_type = 'Тест')
+            ORDER BY card_type = 'Тест', id DESC LIMIT 1
+        );
+
+        CREATE TABLE unknown_scans (
+            id          INTEGER PRIMARY KEY,
+            card_id     INTEGER NOT NULL REFERENCES cards (id),
+            scan_date   TEXT    NOT NULL,
+            scanned_at  TEXT    NOT NULL
+        );
+        INSERT INTO unknown_scans (id, card_id, scan_date, scanned_at)
+        SELECT u.id, c.id, u.scan_date, u.scanned_at
+        FROM unknown_cards AS u JOIN cards AS c USING (series, number);
+        DROP TABLE unknown_cards;
+        CREATE INDEX unknown_scans_by_date ON unknown_scans (scan_date);
+
+        CREATE TABLE new_students (
+            id          INTEGER PRIMARY KEY,
+            full_name   TEXT    NOT NULL CHECK (full_name <> ''),
+            group_name  TEXT    NOT NULL
+        );
+        INSERT INTO new_students (id, full_name, group_name) SELECT id, full_name, group_name FROM students;
+        DROP TABLE students;
+        ALTER TABLE new_students RENAME TO students;
+        CREATE TRIGGER student_renamed AFTER UPDATE OF full_name, group_name ON students
+        WHEN OLD.full_name IS NOT NEW.full_name OR OLD.group_name IS NOT NEW.group_name
+        BEGIN
+            INSERT INTO export_queue (school_year)
+            SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
+                          - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
+            FROM meals WHERE student_id = NEW.id;
+        END;
         """
     };
+
+    // Ученик и номер его карточки (столбцы как у read_student)
+    private const string STUDENT_COLUMNS = "s.id, c.series * 65536 + c.number, s.full_name, s.group_name";
 
     // Сколько ждать, если базу держит другая программа (DB Browser for SQLite
     // держит её, пока в нём не нажали «Записать изменения»)
@@ -103,9 +171,28 @@ public class Database {
         }
 
         db.busy_timeout (BUSY_TIMEOUT_MS);
-        exec ("PRAGMA foreign_keys = ON");
         exec ("PRAGMA journal_mode = WAL");
+        // Внешние ключи — после миграций: они пересобирают таблицы (DROP + RENAME),
+        // а со включёнными ключами DROP TABLE удалил бы и ссылки на таблицу.
+        // Внутри транзакции миграции их уже не выключить.
         migrate ();
+        exec ("PRAGMA foreign_keys = ON");
+    }
+
+    public delegate void Work () throws DatabaseError;
+
+    // Всё или ничего: если work бросил ошибку, его изменения откатываются.
+    // Можно вкладывать одну в другую.
+    public void transaction (Work work) throws DatabaseError {
+        exec ("SAVEPOINT work");
+        try {
+            work ();
+        } catch (DatabaseError e) {
+            db.exec ("ROLLBACK TO work");
+            db.exec ("RELEASE work");
+            throw e;
+        }
+        exec ("RELEASE work");
     }
 
     // Меняется, когда базу изменила другая программа (свои изменения не в счёт):
@@ -137,34 +224,69 @@ public class Database {
     // --- Ученики ---
 
     public int64 add_student (string full_name, string group_name, int64? card_uid = null) throws DatabaseError {
-        var stmt = prepare ("INSERT INTO students (full_name, group_name, card_uid) VALUES (?, ?, ?)");
-        stmt.bind_text (1, full_name);
-        stmt.bind_text (2, group_name);
-        bind_nullable_int64 (stmt, 3, card_uid);
-        step_done (stmt);
-        return db.last_insert_rowid ();
+        int64 id = 0;
+        transaction (() => {
+            var stmt = prepare ("INSERT INTO students (full_name, group_name) VALUES (?, ?)");
+            stmt.bind_text (1, full_name);
+            stmt.bind_text (2, group_name);
+            step_done (stmt);
+            id = db.last_insert_rowid ();
+            if (card_uid != null) {
+                give_card (id, card_uid);
+            }
+        });
+        return id;
     }
 
+    // ФИО, группа и карточка. Прежняя карточка, если её сменили или убрали,
+    // остаётся в базе неизвестной.
     public void update_student (Student student) throws DatabaseError {
-        var stmt = prepare ("UPDATE students SET full_name = ?, group_name = ?, card_uid = ? WHERE id = ?");
-        stmt.bind_text (1, student.full_name);
-        stmt.bind_text (2, student.group_name);
-        bind_nullable_int64 (stmt, 3, student.card_uid);
-        stmt.bind_int64 (4, student.id);
-        step_done (stmt);
+        transaction (() => {
+            var stmt = prepare ("UPDATE students SET full_name = ?, group_name = ? WHERE id = ?");
+            stmt.bind_text (1, student.full_name);
+            stmt.bind_text (2, student.group_name);
+            stmt.bind_int64 (3, student.id);
+            step_done (stmt);
+
+            var release = prepare ("""
+                UPDATE cards SET student_id = NULL
+                WHERE student_id = ?1 AND (?2 IS NULL OR series * 65536 + number <> ?2)
+            """);
+            release.bind_int64 (1, student.id);
+            bind_nullable_int64 (release, 2, student.card_uid);
+            step_done (release);
+            if (student.card_uid != null) {
+                give_card (student.id, student.card_uid);
+            }
+        });
     }
 
     public Student? find_student_by_card (int64 card_uid) throws DatabaseError {
-        var stmt = prepare ("SELECT id, card_uid, full_name, group_name FROM students WHERE card_uid = ?");
-        stmt.bind_int64 (1, card_uid);
+        var stmt = prepare (@"
+            SELECT $STUDENT_COLUMNS FROM cards AS c JOIN students AS s ON s.id = c.student_id
+            WHERE c.series = ? AND c.number = ?
+        ");
+        stmt.bind_int64 (1, card_uid / 65536);
+        stmt.bind_int64 (2, card_uid % 65536);
+        return step_row (stmt) ? read_student (stmt, 0) : null;
+    }
+
+    // Ученик с такими ФИО и группой (если таких несколько — первый записанный)
+    public Student? find_student_by_name (string full_name, string group_name) throws DatabaseError {
+        var stmt = prepare (@"
+            SELECT $STUDENT_COLUMNS FROM students AS s LEFT JOIN cards AS c ON c.student_id = s.id
+            WHERE s.full_name = ? AND s.group_name = ? ORDER BY s.id LIMIT 1
+        ");
+        stmt.bind_text (1, full_name);
+        stmt.bind_text (2, group_name);
         return step_row (stmt) ? read_student (stmt, 0) : null;
     }
 
     public GenericArray<Student> list_students () throws DatabaseError {
-        var stmt = prepare ("""
-            SELECT id, card_uid, full_name, group_name FROM students
-            ORDER BY group_name, full_name
-        """);
+        var stmt = prepare (@"
+            SELECT $STUDENT_COLUMNS FROM students AS s LEFT JOIN cards AS c ON c.student_id = s.id
+            ORDER BY s.group_name, s.full_name
+        ");
         var result = new GenericArray<Student> ();
         while (step_row (stmt)) {
             result.add (read_student (stmt, 0));
@@ -225,7 +347,8 @@ public class Database {
     // завтраком и обедом) — по последней выдаче.
     public GenericArray<DayRecord> day_records (DateTime day) throws DatabaseError {
         var stmt = prepare ("""
-            SELECT s.id, s.card_uid, s.full_name, s.group_name,
+            SELECT s.id, (SELECT series * 65536 + number FROM cards WHERE student_id = s.id),
+                   s.full_name, s.group_name,
                    max(m.issued_at) FILTER (WHERE m.meal_type = 'breakfast'),
                    max(m.issued_at) FILTER (WHERE m.meal_type = 'lunch'),
                    (SELECT coalesce (full_name, s.full_name) FROM meals
@@ -267,42 +390,90 @@ public class Database {
         return result;
     }
 
+    // --- Карточки ---
+
+    // Запомнить карточку и её данные от считывателя. Карточку, о которой
+    // известны только серия и номер (записана импортом), первое прикладывание
+    // дополняет типом, кодом и строкой считывателя. Записанное дальше
+    // не меняется — разве что карточку из тестового режима заменит настоящая.
+    public void remember_card (CardRead card) throws DatabaseError {
+        var stmt = prepare ("""
+            INSERT INTO cards (series, number, card_type, code, raw) VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT (series, number) DO UPDATE
+            SET card_type = excluded.card_type, code = excluded.code, raw = excluded.raw
+            WHERE cards.card_type IS NULL OR (cards.card_type = ?6 AND excluded.card_type <> ?6)
+        """);
+        stmt.bind_int (1, card.series);
+        stmt.bind_int (2, card.number);
+        stmt.bind_text (3, card.card_type);
+        stmt.bind_text (4, card.code);
+        stmt.bind_text (5, card.raw);
+        stmt.bind_text (6, CardRead.TEST_TYPE);
+        step_done (stmt);
+    }
+
+    // Данные карточки из базы; null — такой карточки нет. Пока карточку
+    // не прикладывали, тип, код и строка считывателя — пустые.
+    public CardRead? find_card (int64 card_uid) throws DatabaseError {
+        var stmt = prepare ("""
+            SELECT coalesce (raw, ''), coalesce (card_type, ''), coalesce (code, ''), series, number
+            FROM cards WHERE series = ? AND number = ?
+        """);
+        stmt.bind_int64 (1, card_uid / 65536);
+        stmt.bind_int64 (2, card_uid % 65536);
+        return step_row (stmt) ? read_card (stmt) : null;
+    }
+
+    // Отдать карточку ученику: новую или уже записанную в базе ничьей.
+    // Карточка другого ученика — DatabaseError.CONSTRAINT.
+    private void give_card (int64 student_id, int64 card_uid) throws DatabaseError {
+        var stmt = prepare ("""
+            INSERT INTO cards (series, number, student_id) VALUES (?1, ?2, ?3)
+            ON CONFLICT (series, number) DO UPDATE SET student_id = excluded.student_id
+            WHERE cards.student_id IS NULL OR cards.student_id = excluded.student_id
+        """);
+        stmt.bind_int64 (1, card_uid / 65536);
+        stmt.bind_int64 (2, card_uid % 65536);
+        stmt.bind_int64 (3, student_id);
+        step_done (stmt);
+        if (db.changes () == 0) {
+            throw new DatabaseError.CONSTRAINT (@"карточка $(CardRead.format_uid (card_uid)) уже у другого ученика");
+        }
+    }
+
     // --- Неизвестные карточки ---
 
-    // Запомнить, что приложили карточку, которой нет в базе.
+    // Запомнить, что приложили карточку, которой нет у учеников.
     // Время берётся из when, card.scanned_at не нужен.
     public void record_unknown_card (CardRead card, DateTime when) throws DatabaseError {
-        var stmt = prepare ("""
-            INSERT INTO unknown_cards (raw, card_type, code, series, number, scan_date, scanned_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """);
-        stmt.bind_text (1, card.raw);
-        stmt.bind_text (2, card.card_type);
-        stmt.bind_text (3, card.code);
-        stmt.bind_int (4, card.series);
-        stmt.bind_int (5, card.number);
-        stmt.bind_text (6, format_date (when));
-        stmt.bind_text (7, when.format ("%H:%M:%S"));
-        step_done (stmt);
+        transaction (() => {
+            remember_card (card);
+            var stmt = prepare ("""
+                INSERT INTO unknown_scans (card_id, scan_date, scanned_at)
+                SELECT id, ?3, ?4 FROM cards WHERE series = ?1 AND number = ?2
+            """);
+            stmt.bind_int (1, card.series);
+            stmt.bind_int (2, card.number);
+            stmt.bind_text (3, format_date (when));
+            stmt.bind_text (4, when.format ("%H:%M:%S"));
+            step_done (stmt);
+        });
     }
 
     // Неизвестные карточки, приложенные в этот день, по порядку прикладывания
     public GenericArray<CardRead> unknown_cards (DateTime day) throws DatabaseError {
         var stmt = prepare ("""
-            SELECT raw, card_type, code, series, number, scanned_at FROM unknown_cards
-            WHERE scan_date = ? ORDER BY id
+            SELECT coalesce (c.raw, ''), coalesce (c.card_type, ''), coalesce (c.code, ''),
+                   c.series, c.number, u.scanned_at
+            FROM unknown_scans AS u JOIN cards AS c ON c.id = u.card_id
+            WHERE u.scan_date = ? ORDER BY u.id
         """);
         stmt.bind_text (1, format_date (day));
         var result = new GenericArray<CardRead> ();
         while (step_row (stmt)) {
-            result.add (new CardRead () {
-                raw = stmt.column_text (0),
-                card_type = stmt.column_text (1),
-                code = stmt.column_text (2),
-                series = stmt.column_int (3),
-                number = stmt.column_int (4),
-                scanned_at = stmt.column_text (5)
-            });
+            var card = read_card (stmt);
+            card.scanned_at = stmt.column_text (5);
+            result.add (card);
         }
         return result;
     }
@@ -502,6 +673,17 @@ public class Database {
             card_uid = stmt.column_type (first + 1) == Sqlite.NULL ? null : (int64?) stmt.column_int64 (first + 1),
             full_name = stmt.column_text (first + 2),
             group_name = stmt.column_text (first + 3)
+        };
+    }
+
+    // Столбцы raw, card_type, code, series, number
+    private static CardRead read_card (Sqlite.Statement stmt) {
+        return new CardRead () {
+            raw = stmt.column_text (0),
+            card_type = stmt.column_text (1),
+            code = stmt.column_text (2),
+            series = stmt.column_int (3),
+            number = stmt.column_int (4)
         };
     }
 }

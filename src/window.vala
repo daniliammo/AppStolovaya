@@ -183,6 +183,14 @@ public class MainWindow : MainWindowUi {
     // null — по настройкам: по времени или обе кнопки.
     private void show_student (CardRead card, MealType? forced = null) {
         var now = new DateTime.now_local ();
+        // Карточку, записанную импортом (только серия и номер), дополнить
+        // данными от считывателя. Не вышло — ученика всё равно показываем.
+        try {
+            database.remember_card (card);
+        } catch (DatabaseError e) {
+            show_database_error (e);
+        }
+
         Student? found;
         DayRecord day;
         try {
@@ -584,7 +592,7 @@ public class MainWindow : MainWindowUi {
     private void simulate_card (int64 uid) {
         var card = new CardRead () {
             raw = "",
-            card_type = "Тест",
+            card_type = CardRead.TEST_TYPE,
             code = "",
             series = (int) (uid / 65536),
             number = (int) (uid % 65536)

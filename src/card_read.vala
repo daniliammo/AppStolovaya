@@ -7,6 +7,9 @@
 
 // Одно считывание карточки
 public class CardRead {
+    // Тип карточки, приложенной в тестовом режиме
+    public const string TEST_TYPE = "Тест";
+
     public string raw;        // строка от считывателя как есть
     public string card_type;  // «Em-Marine», «Mifare» или «Тест» (тестовый режим)
     public string code;       // число в квадратных скобках (hex)
@@ -17,6 +20,11 @@ public class CardRead {
     // Номер карточки для базы
     public int64 uid {
         get { return (int64) series * 65536 + number; }
+    }
+
+    // Номер для базы так, как его печатают на карточке: «120,09886»
+    public static string format_uid (int64 uid) {
+        return "%s,%05d".printf ((uid / 65536).to_string (), (int) (uid % 65536));
     }
 
     // Разобрать строку считывателя. null — это не строка с карточкой.
