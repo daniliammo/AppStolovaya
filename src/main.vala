@@ -93,14 +93,6 @@ public class App : Adw.Application {
         });
         add_action (export);
 
-        var history = new SimpleAction ("history", null);
-        history.activate.connect (() => {
-            activate ();
-            ((MainWindow) active_window).show_history ();
-        });
-        add_action (history);
-        set_accels_for_action ("app.history", { "<Control>h" });
-
         var import_students_action = new SimpleAction ("import-students", null);
         import_students_action.activate.connect (() => {
             activate ();

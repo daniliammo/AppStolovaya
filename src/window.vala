@@ -1,5 +1,5 @@
 // Главное окно: ожидание карточки, карточка ученика, результат выдачи,
-// счётчики и Последние считывания за сегодня.
+// счётчики и панель считываний.
 // Разметка — в main_window_ui.vala (MainWindowUi),
 // здесь только логика: обновление виджетов и обработчики сигналов.
 
@@ -7,7 +7,6 @@ public class MainWindow : MainWindowUi {
     // Сколько секунд показывать результат и сколько ждать на странице ученика
     private const uint RESULT_SECONDS = 10;
     private const uint STUDENT_SECONDS = 15;
-    private const int RECENT_COUNT = 10;
 
     private Database database;
     private Settings settings;
@@ -30,14 +29,6 @@ public class MainWindow : MainWindowUi {
     private ReaderState reader_state = ReaderState.CONNECTED;
     private uint32 reader_notification = 0;
 
-    // Одна строка списка «Последние считывания»: выдача или неизвестная карточка
-    private class Issue {
-        public string time;  // 'HH:MM:SS'
-        public DayRecord? record;  // кто получил; null — карточки нет в базе
-        public MealType type;
-        public CardRead? card;  // неизвестная карточка (когда record — null)
-    }
-
     // Приложили карточку (настоящую или в тестовом режиме)
     public signal void card_presented (CardRead card);
 
@@ -46,6 +37,8 @@ public class MainWindow : MainWindowUi {
         this.database = database;
         this.settings = settings;
         this.reader = reader;
+        history_panel.database = database;
+        history_panel.database_failed.connect (show_database_error);
 
         setup_actions (app);
         setup_dark_button ();
@@ -183,6 +176,7 @@ public class MainWindow : MainWindowUi {
     // null — по настройкам: по времени или обе кнопки.
     private void show_student (CardRead card, MealType? forced = null) {
         var now = new DateTime.now_local ();
+        history_panel.go_to_today ();  // смотрели прошлый день — приложенную карточку видно сразу
         // Карточку, записанную импортом (только серия и номер), дополнить
         // данными от считывателя. Не вышло — ученика всё равно показываем.
         try {
@@ -366,18 +360,6 @@ public class MainWindow : MainWindowUi {
 
     // --- Диалоги ---
 
-    public void show_history () {
-        HistoryDialog dialog;
-        try {
-            dialog = new HistoryDialog (database);
-        } catch (DatabaseError e) {
-            show_database_error (e);
-            return;
-        }
-        dialog.database_failed.connect (show_database_error);
-        dialog.present (this);
-    }
-
     public void show_settings () {
         var dialog = new SettingsDialog (settings);
         dialog.database_failed.connect (show_database_error);
@@ -385,9 +367,9 @@ public class MainWindow : MainWindowUi {
         dialog.present (this);
     }
 
-    // --- Счётчики и Последние считывания ---
+    // --- Счётчики и считывания ---
 
-    // Счётчики и Последние считывания за сегодня. Вызывать после списания,
+    // Счётчики за сегодня и панель считываний. Вызывать после списания,
     // при смене дня и при смене приёма пищи.
     public void update_counts () {
         var now = new DateTime.now_local ();
@@ -405,7 +387,7 @@ public class MainWindow : MainWindowUi {
                 update_remaining (meal, counts);
             }
 
-            update_recent (database.day_records (now), database.unknown_cards (now));
+            history_panel.refresh ();
         } catch (DatabaseError e) {
             show_database_error (e);
         }
@@ -433,58 +415,6 @@ public class MainWindow : MainWindowUi {
         remaining_caption.label = meal == MealType.BREAKFAST ? "Осталось на завтрак" : "Осталось на обед";
         remaining_label.label = @"$(int.max (total - issued, 0)) из $total";
         remaining_progress.fraction = total > 0 ? double.min ((double) issued / total, 1.0) : 0.0;
-    }
-
-    // Последние считывания из записей дня: каждый завтрак и обед отдельно,
-    // вперемешку с неизвестными карточками, новые сверху
-    private void update_recent (GenericArray<DayRecord> records, GenericArray<CardRead> unknown) {
-        var issues = new GenericArray<Issue> ();
-        foreach (var record in records) {
-            if (record.breakfast_at != null) {
-                issues.add (new Issue () { time = record.breakfast_at, record = record, type = MealType.BREAKFAST });
-            }
-            if (record.lunch_at != null) {
-                issues.add (new Issue () { time = record.lunch_at, record = record, type = MealType.LUNCH });
-            }
-        }
-        foreach (var card in unknown) {
-            issues.add (new Issue () { time = card.scanned_at, record = null, card = card });
-        }
-        issues.sort ((a, b) => strcmp (b.time, a.time));
-
-        // remove_all () убрал бы и заглушку «Сегодня ещё не прикладывались карточки»
-        Gtk.ListBoxRow? old;
-        while ((old = recent_list.get_row_at_index (0)) != null) {
-            recent_list.remove (old);
-        }
-        for (int i = 0; i < issues.length && i < RECENT_COUNT; i++) {
-            var item = issues[i];
-            var row = new Adw.ActionRow () {
-                activatable = false,
-                can_focus = false
-            };
-            if (item.record != null) {
-                // ФИО и группу могли поменять после выдачи — тогда видно и прежние
-                var record = item.record;
-                row.title = Styles.changed_markup (record.issued_name, record.student.full_name);
-                row.subtitle = @"$(meal_name (item.type)) · $(Styles.changed_markup (record.issued_group, record.student.group_name))";
-                row.tooltip_text = record.change_note ();
-                row.add_prefix (new Adw.Avatar (32, record.student.full_name, true));
-            } else {
-                row.title = "Неизвестная карточка";
-                row.subtitle = @"$(Markup.escape_text (item.card.card_type)) · номер $(item.card.uid)";
-                var icon = new Gtk.Image.from_icon_name ("dialog-question-symbolic") {
-                    pixel_size = 32
-                };
-                icon.add_css_class ("warning");
-                row.add_prefix (icon);
-            }
-            var time = new Gtk.Label (item.time.substring (0, 5));
-            time.add_css_class ("numeric");
-            time.add_css_class ("dim-label");
-            row.add_suffix (time);
-            recent_list.append (row);
-        }
     }
 
     public void show_toast (string text) {
@@ -540,7 +470,7 @@ public class MainWindow : MainWindowUi {
         // В полночь счётчики обнуляются: за новый день выдачи ещё не было.
         // С началом обеда «Осталось» считается уже по обедам.
         // Базу поправили другой программой (переименовали ученика в DB Browser,
-        // добавили учеников) — «Последние считывания» и «Осталось» пересчитать
+        // добавили учеников) — панель считываний и «Осталось» пересчитать
         int64 version = data_version;
         try {
             version = database.data_version ();

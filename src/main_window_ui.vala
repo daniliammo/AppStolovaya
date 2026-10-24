@@ -2,7 +2,7 @@
 // Логика — в window.vala (класс MainWindow наследует MainWindowUi).
 //
 // Слева большая карточка состояния (Gtk.Stack) и счётчики под ней,
-// справа — Последние считывания. Карточка состояния переключается между
+// справа — считывания за сегодня или любой прошедший день (HistoryPanel). Карточка состояния переключается между
 // страницами «ожидание», «ученик» и «результат»; цвет результата задаётся
 // классами status-ok / status-again / status-unknown (стили — в styles.vala).
 
@@ -52,8 +52,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
     protected Gtk.Label remaining_caption;
     protected Gtk.ProgressBar remaining_progress;
 
-    // Последние считывания
-    protected Gtk.ListBox recent_list;
+    // Считывания за выбранный день
+    protected HistoryPanel history_panel;
 
 #if DEBUG
     protected Gtk.Entry card_entry;
@@ -90,7 +90,8 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
             margin_end = 18
         };
         body.append (main_column);
-        body.append (build_recent_panel ());
+        history_panel = new HistoryPanel ();
+        body.append (history_panel);
 
         reader_banner = new Adw.Banner ("Сканер не подключён") {
             button_label = "Настроить",
@@ -123,7 +124,6 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         window_title = new Adw.WindowTitle ("Столовая", "");
 
         var main_section = new Menu ();
-        main_section.append ("История", "app.history");
         main_section.append ("Ученики", "app.students");
         main_section.append ("Импорт учеников…", "app.import-students");
         main_section.append ("Обновить Excel-файл", "app.export");
@@ -373,43 +373,6 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         tile.append (caption_label);
         tile.append (count);
         return tile;
-    }
-
-    // Справа: все считывания за сегодня, новые сверху; длинный список прокручивается
-    private Gtk.Widget build_recent_panel () {
-        var heading = new Gtk.Label ("Последние считывания");
-        heading.add_css_class ("heading");
-
-        // Список только для просмотра: без выделения и фокуса
-        recent_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            valign = Gtk.Align.START,
-            can_focus = false
-        };
-        recent_list.add_css_class ("boxed-list");
-
-        var placeholder = new Gtk.Label ("Сегодня ещё не прикладывались карточки") {
-            wrap = true,
-            margin_top = 18,
-            margin_bottom = 18,
-            margin_start = 12,
-            margin_end = 12
-        };
-        placeholder.add_css_class ("dim-label");
-        recent_list.set_placeholder (placeholder);
-
-        var scroller = new Gtk.ScrolledWindow () {
-            hscrollbar_policy = Gtk.PolicyType.NEVER,
-            vexpand = true,
-            child = recent_list
-        };
-
-        var panel = new Gtk.Box (Gtk.Orientation.VERTICAL, 12) {
-            width_request = 300
-        };
-        panel.append (heading);
-        panel.append (scroller);
-        return panel;
     }
 
 #if DEBUG
