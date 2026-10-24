@@ -606,7 +606,11 @@ public class Database {
 
     private void exec (string sql) throws DatabaseError {
         string errmsg;
-        if (db.exec (sql, null, out errmsg) != Sqlite.OK) {
+        var result = db.exec (sql, null, out errmsg);
+        if (result == Sqlite.BUSY || result == Sqlite.LOCKED) {
+            throw step_error (result);
+        }
+        if (result != Sqlite.OK) {
             throw new DatabaseError.QUERY ("%s", errmsg);
         }
     }

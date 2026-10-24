@@ -456,6 +456,33 @@ void test_busy () throws Error {
     DirUtils.remove (dir);
 }
 
+// Базу держат для записи уже при запуске (миграция не может начаться) —
+// тоже понятная ошибка BUSY
+void test_busy_on_open () throws Error {
+    var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
+    var path = Path.build_filename (dir, "canteen.db");
+
+    Sqlite.Database other;
+    Sqlite.Database.open_v2 (path, out other);
+    assert_true (other.exec ("BEGIN IMMEDIATE") == Sqlite.OK);
+    try {
+        new Database (path);
+        assert_not_reached ();
+    } catch (DatabaseError.BUSY e) {
+        assert_true ("занята другой программой" in e.message);
+    }
+    other.exec ("ROLLBACK");
+    other = null;
+    var db = new Database (path);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    db = null;
+
+    foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
+        FileUtils.remove (Path.build_filename (dir, name));
+    }
+    DirUtils.remove (dir);
+}
+
 void test_reopen_file () throws Error {
     var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
     var path = Path.build_filename (dir, "sub", "canteen.db");  // папка sub создаётся сама
@@ -481,6 +508,7 @@ int main (string[] args) {
     Test.add_func ("/database/schema", () => wrap (test_schema));
     Test.add_func ("/database/student-renamed", () => wrap (test_student_renamed));
     Test.add_func ("/database/busy", () => wrap (test_busy));
+    Test.add_func ("/database/busy-on-open", () => wrap (test_busy_on_open));
     Test.add_func ("/database/students", () => wrap (test_students));
     Test.add_func ("/database/student-constraints", () => wrap (test_student_constraints));
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));
