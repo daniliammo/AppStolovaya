@@ -125,6 +125,7 @@ public abstract class MainWindowUi : Adw.ApplicationWindow {
         var main_section = new Menu ();
         main_section.append ("История", "app.history");
         main_section.append ("Ученики", "app.students");
+        main_section.append ("Импорт учеников…", "app.import-students");
         main_section.append ("Обновить Excel-файл", "app.export");
         main_section.append ("Настройки", "app.preferences");
 

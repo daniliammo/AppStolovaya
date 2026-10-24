@@ -101,6 +101,13 @@ public class App : Adw.Application {
         add_action (history);
         set_accels_for_action ("app.history", { "<Control>h" });
 
+        var import_students_action = new SimpleAction ("import-students", null);
+        import_students_action.activate.connect (() => {
+            activate ();
+            import_students ((MainWindow) active_window);
+        });
+        add_action (import_students_action);
+
         var preferences = new SimpleAction ("preferences", null);
         preferences.activate.connect (() => {
             activate ();
@@ -571,6 +578,58 @@ public class App : Adw.Application {
         }
     }
 #endif
+
+    // Импорт учеников: выбрать таблицу Excel, загрузить, показать итог
+    private void import_students (MainWindow window) {
+        var filter = new Gtk.FileFilter () {
+            name = "Таблицы Excel (.xlsx)"
+        };
+        filter.add_suffix ("xlsx");
+        var filters = new ListStore (typeof (Gtk.FileFilter));
+        filters.append (filter);
+        var dialog = new Gtk.FileDialog () {
+            title = "Импорт учеников",
+            filters = filters,
+            default_filter = filter
+        };
+        dialog.open.begin (window, null, (obj, res) => {
+            File file;
+            try {
+                file = dialog.open.end (res);
+            } catch (Error e) {
+                return;  // окно выбора закрыли
+            }
+            ImportResult result;
+            try {
+                result = StudentsImport.import_file (database, file.get_path ());
+            } catch (Error e) {
+                var alert = new Adw.AlertDialog ("Ученики не загружены", e.message);
+                alert.add_response ("close", "Закрыть");
+                alert.present (window);
+                return;
+            }
+            window.update_counts ();
+            show_import_result (window, result);
+        });
+    }
+
+    private void show_import_result (MainWindow window, ImportResult result) {
+        const int MAX_PROBLEMS = 10;
+        var body = @"Добавлено учеников: $(result.added)\nОбновлено: $(result.updated)\nБез изменений: $(result.unchanged)";
+        if (result.problems.length > 0) {
+            body += @"\n\nНе загружено строк: $(result.problems.length)";
+            for (int i = 0; i < result.problems.length && i < MAX_PROBLEMS; i++) {
+                body += @"\n$(result.problems[i])";
+            }
+            if (result.problems.length > MAX_PROBLEMS) {
+                body += "\n…";
+            }
+        }
+        body += "\n\nУ новых карточек записаны только серия и номер — остальное программа допишет, когда карточку впервые приложат.";
+        var alert = new Adw.AlertDialog ("Ученики загружены", body);
+        alert.add_response ("close", "Готово");
+        alert.present (window);
+    }
 
     private void show_about () {
         var dialog = new Adw.AboutDialog () {
