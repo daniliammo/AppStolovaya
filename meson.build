@@ -9,6 +9,8 @@ glib_deps = [
 ]
 sqlite_dep = dependency('sqlite3')
 xlsxwriter_dep = dependency('xlsxwriter')
+# Чтение .xlsx при импорте учеников; minizip всё равно нужен libxlsxwriter
+minizip_dep = dependency('minizip')
 gio_dep = dependency('gio-2.0')
 # Posix.open, termios — для последовательного порта считывателя
 posix_dep = meson.get_compiler('vala').find_library('posix')
@@ -77,6 +79,8 @@ app = executable('Столовая',
   'src/settings_dialog.vala',
   'src/history_dialog_ui.vala',
   'src/history_dialog.vala',
+  'src/xlsx_reader.vala',
+  'src/students_import.vala',
   'src/system_setup.vala',
   'src/card_reader.vala',
   'src/file_users.vala',
@@ -86,6 +90,7 @@ app = executable('Столовая',
     glib_deps,
     sqlite_dep,
     xlsxwriter_dep,
+    minizip_dep,
     gio_dep,
     posix_dep,
     gtk_dep,
@@ -121,6 +126,14 @@ test('excel-export', executable('test-excel-export',
   'src/excel_export.vala',
   'tests/test_excel_export.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep, posix_dep],
+))
+
+test('students-import', executable('test-students-import',
+  database_sources,
+  'src/xlsx_reader.vala',
+  'src/students_import.vala',
+  'tests/test_students_import.vala',
+  dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep, minizip_dep],
 ))
 
 test('settings', executable('test-settings',
