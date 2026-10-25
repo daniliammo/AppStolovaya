@@ -86,6 +86,7 @@ app = executable('Столовая',
   'src/file_users.vala',
   'src/desktop_entry.vala',
   'src/reader_state.vala',
+  'src/notification_avatar.vala',
   dependencies: [
     glib_deps,
     sqlite_dep,

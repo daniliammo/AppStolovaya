@@ -251,8 +251,9 @@ public class MainWindow : MainWindowUi {
         stack.visible_child_name = PAGE_STUDENT;
         primary_button.grab_focus ();  // Enter выдаёт основной приём пищи
         schedule_return (STUDENT_SECONDS);
-        notify_if_inactive ("auth-smartcard-symbolic", found.full_name,
-            @"$(found.group_name) · $(primary_button.label.down ()) — в окне программы");
+        notify_if_inactive (found.full_name,
+            @"$(found.group_name) · $(primary_button.label.down ()) — в окне программы",
+            NotificationAvatar.student (found.full_name));
     }
 
     protected override void on_primary_clicked () {
@@ -281,7 +282,8 @@ public class MainWindow : MainWindowUi {
                 update_counts ();
                 show_result ("status-ok", "object-select-symbolic",
                     @"$(meal_name (type)) выдан, $(now.format ("%H:%M"))",
-                    @"$(who.full_name) · $(who.group_name)");
+                    @"$(who.full_name) · $(who.group_name)",
+                    NotificationAvatar.student (who.full_name));
             } else {
                 // Успели списать раньше (двойное нажатие или второй считыватель)
                 var at = received_at (database.student_day (who, now), type);
@@ -303,17 +305,20 @@ public class MainWindow : MainWindowUi {
             show_database_error (e);
         }
         show_result ("status-unknown", "dialog-question-symbolic",
-            "Карточка не зарегистрирована", @"Номер $(card.uid) · обратитесь к администратору");
+            "Карточка не зарегистрирована", @"Номер $(card.uid) · обратитесь к администратору",
+            NotificationAvatar.unknown_card ());
     }
 
     private void show_already (Student who, MealType type, string at) {
         show_result ("status-again", "dialog-error-symbolic",
             @"$(meal_name (type)) уже получен в $(at.substring (0, 5))",
-            @"$(who.full_name) · $(who.group_name)");
+            @"$(who.full_name) · $(who.group_name)",
+            NotificationAvatar.student (who.full_name));
     }
 
-    // Цветной результат на всю карточку; через несколько секунд — снова ожидание
-    private void show_result (string css, string icon, string title, string subtitle) {
+    // Цветной результат на всю карточку; через несколько секунд — снова ожидание.
+    // image — картинка для уведомления: ученик или незнакомая карточка.
+    private void show_result (string css, string icon, string title, string subtitle, Variant image) {
         student = null;
         result_icon.icon_name = icon;
         result_title.label = title;
@@ -321,14 +326,16 @@ public class MainWindow : MainWindowUi {
         set_status_class (css);
         stack.visible_child_name = PAGE_RESULT;
         schedule_return (RESULT_SECONDS);
-        notify_if_inactive (icon, title, subtitle);
+        notify_if_inactive (title, subtitle, image);
     }
 
     // Карточку приложили, а окно свёрнуто или под другими окнами —
-    // сообщаем системным уведомлением. Новое заменяет прежнее.
-    private void notify_if_inactive (string icon, string title, string body) {
+    // сообщаем системным уведомлением с картинкой ученика или карточки.
+    // Новое заменяет прежнее.
+    private void notify_if_inactive (string title, string body, Variant image) {
         if (!is_active) {
-            card_notification = App.send_desktop_notification (title, body, icon, card_notification);
+            card_notification = App.send_desktop_notification (title, body,
+                "auth-smartcard-symbolic", card_notification, {}, image);
         }
     }
 

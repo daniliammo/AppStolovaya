@@ -629,10 +629,18 @@ public class App : Adw.Application {
     // GLib.Notification в GNOME работает только для приложений
     // с установленным .desktop-файлом.
     // replaces — id прежнего уведомления, которое заменить новым (0 — показать
-    // отдельно). actions — кнопки парами: ключ, надпись. Возвращает id
-    // показанного уведомления, 0 — если не вышло.
+    // отдельно). actions — кнопки парами: ключ, надпись. image — картинка
+    // вместо значка (см. NotificationAvatar). Возвращает id показанного
+    // уведомления, 0 — если не вышло.
     public static uint32 send_desktop_notification (string title, string body,
-            string icon = "x-office-spreadsheet", uint32 replaces = 0, string[] actions = {}) {
+            string icon = "x-office-spreadsheet", uint32 replaces = 0, string[] actions = {},
+            Variant? image = null) {
+        // Подсказка: чьё уведомление — имя и значок из ярлыка программы
+        var hints = new VariantBuilder (new VariantType ("a{sv}"));
+        hints.add ("{sv}", "desktop-entry", new Variant.string (DesktopEntry.ID));
+        if (image != null) {
+            hints.add ("{sv}", "image-data", image);
+        }
         try {
             var bus = Bus.get_sync (BusType.SESSION);
             var reply = bus.call_sync (
@@ -645,11 +653,7 @@ public class App : Adw.Application {
                     new Variant.string (title),
                     new Variant.string (body),
                     new Variant.strv (actions),                        // кнопки
-                    // Подсказка: чьё уведомление — имя и значок из ярлыка программы
-                    new Variant.array (new VariantType ("{sv}"), {
-                        new Variant.dict_entry (new Variant.string ("desktop-entry"),
-                            new Variant.variant (new Variant.string (DesktopEntry.ID)))
-                    }),
+                    hints.end (),
                     new Variant.int32 (-1)             // время показа по умолчанию
                 }),
                 new VariantType ("(u)"), DBusCallFlags.NONE, 2000);
