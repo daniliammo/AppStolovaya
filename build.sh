@@ -1,35 +1,49 @@
 #!/bin/sh
 # Сборка программы.
 #
-#   ./build.sh              отладочная сборка в build/
-#   ./build.sh --release    сборка для выдачи в build-release/
-#   ./build.sh --package    переносимая сборка для выдачи: папка
-#                           dist/Столовая/ с программой и .so libadwaita
-#                           и libxlsxwriter рядом с ней (сборка в build-package/)
+#   ./build.sh                    отладочная сборка в build/
+#   ./build.sh --release          сборка для выдачи в build-release/
+#   ./build.sh --package          переносимая сборка для выдачи: папка
+#                                 dist/Столовая/ с программой и .so libadwaita
+#                                 и libxlsxwriter рядом с ней (сборка в build-package/)
+#   ./build.sh --package --debug  то же, но отладочная: dist/Столовая-debug/
+#                                 (сборка в build-package-debug/)
 set -eu
 
 cd "$(dirname "$0")"
 src=$(pwd)
 
 release=false
+debug=false
 package=false
 for arg in "$@"; do
   case "$arg" in
     --release) release=true ;;
+    --debug) debug=true ;;
     --package) package=true ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Неизвестный флаг: $arg" >&2; exit 2 ;;
   esac
 done
+
+if $release && $debug; then
+  echo "--release и --debug нельзя указать вместе" >&2
+  exit 2
+fi
 
 dir=build
 buildtype=debug
 $release && buildtype=release
 if $package; then
-  # Пакет всегда для выдачи: без тестовых частей
+  # Пакет по умолчанию для выдачи; --debug — отладочный пакет отдельно
   dir=$dir-package
-  buildtype=release
   out=dist/Столовая
+  if $debug; then
+    dir=$dir-debug
+    out=$out-debug
+  else
+    buildtype=release
+  fi
 else
   $release && dir=$dir-release
 fi
