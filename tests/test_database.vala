@@ -6,7 +6,7 @@ DateTime at (int day, int hour, int minute) {
 
 void test_schema () throws Error {
     var db = new Database (":memory:");
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
 }
 
 void test_students () throws Error {
@@ -45,6 +45,159 @@ void test_students () throws Error {
     assert_null (db.find_student_by_card (124));
     assert_true (db.find_student_by_name ("Иванов Иван", "5А").card_uid == null);
     assert_null (db.find_student_by_name ("Иванов Иван", "5Б"));
+}
+
+void test_student_details () throws Error {
+    var db = new Database (":memory:");
+    db.add_student ("Без сведений", "5А", 123);
+    var student = db.find_student_by_card (123);
+    assert_null (student.benefit_category);
+    assert_true (student.is_budget == null);
+
+    // Все категории из справочника допустимы и с бюджетом, и без бюджета.
+    foreach (var category in Student.BENEFIT_CATEGORIES) {
+        foreach (var budget in new bool[] { true, false }) {
+            student.benefit_category = category;
+            student.is_budget = budget;
+            db.update_student (student);
+            var found = db.find_student_by_card (123);
+            assert_cmpstr (found.benefit_category, CompareOperator.EQ, category);
+            assert_true (found.is_budget != null && found.is_budget == budget);
+            found = db.find_student_by_name (student.full_name, student.group_name);
+            assert_cmpstr (found.benefit_category, CompareOperator.EQ, category);
+            assert_true (found.is_budget != null && found.is_budget == budget);
+            assert_cmpstr (db.list_students ()[0].benefit_category, CompareOperator.EQ, category);
+        }
+    }
+
+    db.record_meal (student.id, MealType.LUNCH, at (15, 12, 30));
+    var record = db.day_records (at (15, 0, 0))[0];
+    assert_cmpstr (record.student.benefit_category, CompareOperator.EQ, student.benefit_category);
+    assert_true (record.student.is_budget != null && record.student.is_budget == false);
+    assert_cmpstr (record.lunch_at, CompareOperator.EQ, "12:30:00");
+    assert_cmpstr (record.issued_name, CompareOperator.EQ, student.full_name);
+
+    student.benefit_category = "Несуществующая категория";
+    try {
+        db.update_student (student);
+        assert_not_reached ();
+    } catch (DatabaseError.CONSTRAINT e) {
+    }
+    assert_cmpstr (db.find_student_by_card (123).benefit_category, CompareOperator.EQ, record.student.benefit_category);
+    try {
+        db.add_student ("Неверная льгота", "5А", null, "");
+        assert_not_reached ();
+    } catch (DatabaseError.CONSTRAINT e) {
+    }
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 1);
+
+    student.benefit_category = null;
+    student.is_budget = null;
+    db.update_student (student);
+    assert_null (db.find_student_by_card (123).benefit_category);
+    assert_true (db.find_student_by_card (123).is_budget == null);
+
+    db.add_student ("Бюджет", "5Б", 124, "Сироты ССЗ", true);
+    db.add_student ("Не бюджет", "5Б", 125, "Многодетные (ССЗ)", false);
+    assert_true (db.find_student_by_card (124).is_budget == true);
+    assert_true (db.find_student_by_card (125).is_budget != null && db.find_student_by_card (125).is_budget == false);
+    assert_cmpstr (db.find_student_by_card (125).benefit_category, CompareOperator.EQ, "Многодетные (ССЗ)");
+}
+
+void test_migrate_from_6 () throws Error {
+    var dir = DirUtils.make_tmp ("stolovaya-test-XXXXXX");
+    var path = Path.build_filename (dir, "canteen.db");
+    Sqlite.Database old;
+    Sqlite.Database.open_v2 (path, out old);
+    assert_true (old.exec ("""
+        CREATE TABLE students (id INTEGER PRIMARY KEY, full_name TEXT NOT NULL, group_name TEXT NOT NULL);
+        CREATE TABLE export_queue (id INTEGER PRIMARY KEY, school_year INTEGER NOT NULL);
+        CREATE TABLE cards (id INTEGER PRIMARY KEY, series INTEGER, number INTEGER,
+                            student_id INTEGER UNIQUE REFERENCES students (id), UNIQUE (series, number));
+        CREATE TABLE meals (id INTEGER PRIMARY KEY, student_id INTEGER REFERENCES students (id),
+                            meal_date TEXT, meal_type TEXT, issued_at TEXT, full_name TEXT, group_name TEXT);
+        INSERT INTO students VALUES (42, 'Иванов Иван', '5А');
+        INSERT INTO cards VALUES (7, 0, 123, 42);
+        INSERT INTO meals VALUES (9, 42, '2026-10-15', 'lunch', '12:30:00', 'Иванов Иван', '5А');
+        PRAGMA user_version = 6;
+    """) == Sqlite.OK);
+    old = null;
+
+    var db = new Database (path);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
+    var student = db.find_student_by_card (123);
+    assert_true (student.id == 42);
+    assert_null (student.benefit_category);
+    assert_true (student.is_budget == null);
+    assert_cmpstr (db.day_records (at (15, 0, 0))[0].lunch_at, CompareOperator.EQ, "12:30:00");
+    student.benefit_category = "Сироты КРС";
+    student.is_budget = false;
+    db.update_student (student);
+    db = null;
+
+    // Ограничения действуют и при редактировании базы внешней программой.
+    Sqlite.Database.open_v2 (path, out old);
+    assert_true (old.exec ("UPDATE students SET is_budget = 2") == Sqlite.CONSTRAINT);
+    assert_true (old.exec ("UPDATE students SET is_budget = 'бюджет'") == Sqlite.CONSTRAINT);
+    assert_true (old.exec ("UPDATE students SET benefit_category = 'Другая'") == Sqlite.CONSTRAINT);
+    assert_true (old.exec ("PRAGMA foreign_key_check", (n, values, names) => {
+        assert_not_reached ();
+    }) == Sqlite.OK);
+    old = null;
+
+    db = new Database (path);
+    student = db.find_student_by_card (123);
+    assert_cmpstr (student.benefit_category, CompareOperator.EQ, "Сироты КРС");
+    assert_true (student.is_budget != null && student.is_budget == false);
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 1);
+    // У выдачи до миграции категория неизвестна, даже если студент уже заполнен.
+    var old_state = db.day_records (at (15, 0, 0))[0].lunch_state;
+    assert_null (old_state.benefit_category);
+    assert_true (old_state.is_budget == null);
+    assert_true (db.last_queued_id () > 0);  // старый файл получит новый отчёт
+    db = null;
+    foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
+        FileUtils.remove (Path.build_filename (dir, name));
+    }
+    DirUtils.remove (dir);
+}
+
+void test_student_state () throws Error {
+    var db = new Database (":memory:");
+    var id = db.add_student ("Иванов Иван", "5А", 1, "Сироты КРС", true);
+    db.record_meal (id, MealType.BREAKFAST, at (15, 8, 0));
+    var student = db.find_student_by_card (1);
+    student.full_name = "Иванов Илья";
+    student.group_name = "6Б";
+    student.benefit_category = "Многодетные (ССЗ)";
+    student.is_budget = false;
+    db.update_student (student);
+    db.record_meal (id, MealType.LUNCH, at (15, 12, 0));
+    assert_false (db.record_meal (id, MealType.BREAKFAST, at (15, 8, 30)));
+
+    var record = db.day_records (at (15, 0, 0))[0];
+    assert_cmpstr (record.breakfast_state.full_name, CompareOperator.EQ, "Иванов Иван");
+    assert_cmpstr (record.breakfast_state.group_name, CompareOperator.EQ, "5А");
+    assert_cmpstr (record.breakfast_state.benefit_category, CompareOperator.EQ, "Сироты КРС");
+    assert_true (record.breakfast_state.is_budget == true);
+    assert_cmpstr (record.lunch_state.full_name, CompareOperator.EQ, "Иванов Илья");
+    assert_cmpstr (record.lunch_state.group_name, CompareOperator.EQ, "6Б");
+    assert_cmpstr (record.lunch_state.benefit_category, CompareOperator.EQ, "Многодетные (ССЗ)");
+    assert_true (record.lunch_state.is_budget != null && record.lunch_state.is_budget == false);
+    assert_cmpstr (record.issued_name, CompareOperator.EQ, "Иванов Илья");
+    var personal_day = db.student_day (student, at (15, 0, 0));
+    assert_cmpstr (personal_day.breakfast_state.benefit_category, CompareOperator.EQ, "Сироты КРС");
+    assert_true (personal_day.lunch_state.is_budget != null && personal_day.lunch_state.is_budget == false);
+
+    student.benefit_category = null;
+    student.is_budget = null;
+    db.update_student (student);
+    db.record_meal (id, MealType.BREAKFAST, at (16, 8, 0));
+    var next = db.day_records (at (16, 0, 0))[0];
+    assert_null (next.breakfast_state.benefit_category);
+    assert_true (next.breakfast_state.is_budget == null);
+    assert_null (next.lunch_state);
+    assert_cmpstr (db.day_records (at (15, 0, 0))[0].breakfast_state.benefit_category, CompareOperator.EQ, "Сироты КРС");
 }
 
 void assert_constraint (Database db, string full_name, int64? card_uid) {
@@ -286,7 +439,7 @@ void test_migrate_from_2 () throws Error {
     old = null;
 
     var db = new Database (path);
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
     var years = db.changed_school_years ();
     assert_cmpint (years.length, CompareOperator.EQ, 1);
     assert_cmpint (years[0], CompareOperator.EQ, 2026);
@@ -338,7 +491,7 @@ void test_migrate_from_5 () throws Error {
     old = null;
 
     var db = new Database (path);
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
 
     // Карточка ученика — с данными из его прежних прикладываний неизвестной
     var student = db.find_student_by_card (65536 + 1);
@@ -474,7 +627,7 @@ void test_busy_on_open () throws Error {
     other.exec ("ROLLBACK");
     other = null;
     var db = new Database (path);
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
     db = null;
 
     foreach (var name in new string[] { "canteen.db", "canteen.db-wal", "canteen.db-shm" }) {
@@ -492,7 +645,7 @@ void test_reopen_file () throws Error {
     db = null;  // закрыть
 
     db = new Database (path);  // миграция не должна повториться
-    assert_cmpint (db.schema_version (), CompareOperator.EQ, 6);
+    assert_cmpint (db.schema_version (), CompareOperator.EQ, 8);
     assert_nonnull (db.find_student_by_card (7));
     db = null;
 
@@ -510,6 +663,8 @@ int main (string[] args) {
     Test.add_func ("/database/busy", () => wrap (test_busy));
     Test.add_func ("/database/busy-on-open", () => wrap (test_busy_on_open));
     Test.add_func ("/database/students", () => wrap (test_students));
+    Test.add_func ("/database/student-details", () => wrap (test_student_details));
+    Test.add_func ("/database/student-state", () => wrap (test_student_state));
     Test.add_func ("/database/student-constraints", () => wrap (test_student_constraints));
     Test.add_func ("/database/record-meal", () => wrap (test_record_meal));
     Test.add_func ("/database/unknown-cards", () => wrap (test_unknown_cards));
@@ -522,6 +677,7 @@ int main (string[] args) {
     Test.add_func ("/database/changed-after-clock-back", () => wrap (test_changed_after_clock_back));
     Test.add_func ("/database/migrate-from-2", () => wrap (test_migrate_from_2));
     Test.add_func ("/database/migrate-from-5", () => wrap (test_migrate_from_5));
+    Test.add_func ("/database/migrate-from-6", () => wrap (test_migrate_from_6));
     Test.add_func ("/database/reopen-file", () => wrap (test_reopen_file));
     return Test.run ();
 }

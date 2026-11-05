@@ -147,11 +147,34 @@ public class Database {
                           - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9)
             FROM meals WHERE student_id = NEW.id;
         END;
+        """,
+        // 7: льготная категория и бюджетность — независимые свойства.
+        // У прежних учеников они неизвестны (NULL), а не «без льготы» / «не бюджет».
+        """
+        ALTER TABLE students ADD COLUMN benefit_category TEXT CHECK (benefit_category IN (
+            'Сироты КРС', 'Сироты ССЗ', 'Сироты (ПП)',
+            'Многодетные (КРС)', 'Многодетные КРС 18+', 'Многодетные (ССЗ)',
+            'Многодетные ССЗ 18+', 'Многодетные (ПП)',
+            'Инвалиды (КРС)', 'Инвалиды ССЗ', 'Инвалиды (ПП)',
+            'Дети мобилизованных КРС', 'Дети мобилизованных ССЗ',
+            'КРС нельготная категория'
+        ));
+        ALTER TABLE students ADD COLUMN is_budget INTEGER CHECK (is_budget IN (0, 1));
+        """,
+        // 8: состояние ученика на каждую выдачу. Прежние категории неизвестны:
+        // оставляем NULL, чтобы не приписывать прошлым выдачам нынешнюю льготу.
+        // Все годы один раз пересобираются с новыми отчётами по категориям.
+        """
+        ALTER TABLE meals ADD COLUMN benefit_category TEXT;
+        ALTER TABLE meals ADD COLUMN is_budget INTEGER CHECK (is_budget IN (0, 1));
+        INSERT INTO export_queue (school_year)
+        SELECT DISTINCT CAST (substr (meal_date, 1, 4) AS INTEGER)
+                      - (CAST (substr (meal_date, 6, 2) AS INTEGER) < 9) FROM meals;
         """
     };
 
     // Ученик и номер его карточки (столбцы как у read_student)
-    private const string STUDENT_COLUMNS = "s.id, c.series * 65536 + c.number, s.full_name, s.group_name";
+    private const string STUDENT_COLUMNS = "s.id, c.series * 65536 + c.number, s.full_name, s.group_name, s.benefit_category, s.is_budget";
 
     // Сколько ждать, если базу держит другая программа (DB Browser for SQLite
     // держит её, пока в нём не нажали «Записать изменения»)
@@ -223,12 +246,14 @@ public class Database {
 
     // --- Ученики ---
 
-    public int64 add_student (string full_name, string group_name, int64? card_uid = null) throws DatabaseError {
+    public int64 add_student (string full_name, string group_name, int64? card_uid = null,
+                              string? benefit_category = null, bool? is_budget = null) throws DatabaseError {
         int64 id = 0;
         transaction (() => {
-            var stmt = prepare ("INSERT INTO students (full_name, group_name) VALUES (?, ?)");
+            var stmt = prepare ("INSERT INTO students (full_name, group_name, benefit_category, is_budget) VALUES (?, ?, ?, ?)");
             stmt.bind_text (1, full_name);
             stmt.bind_text (2, group_name);
+            bind_student_details (stmt, 3, benefit_category, is_budget);
             step_done (stmt);
             id = db.last_insert_rowid ();
             if (card_uid != null) {
@@ -238,14 +263,15 @@ public class Database {
         return id;
     }
 
-    // ФИО, группа и карточка. Прежняя карточка, если её сменили или убрали,
+    // Свойства ученика и карточка. Прежняя карточка, если её сменили или убрали,
     // остаётся в базе неизвестной.
     public void update_student (Student student) throws DatabaseError {
         transaction (() => {
-            var stmt = prepare ("UPDATE students SET full_name = ?, group_name = ? WHERE id = ?");
+            var stmt = prepare ("UPDATE students SET full_name = ?, group_name = ?, benefit_category = ?, is_budget = ? WHERE id = ?");
             stmt.bind_text (1, student.full_name);
             stmt.bind_text (2, student.group_name);
-            stmt.bind_int64 (3, student.id);
+            bind_student_details (stmt, 3, student.benefit_category, student.is_budget);
+            stmt.bind_int64 (5, student.id);
             step_done (stmt);
 
             var release = prepare ("""
@@ -298,12 +324,14 @@ public class Database {
 
     // Списать завтрак или обед. Возвращает false, если в этот день
     // ученик его уже получил (второй раз не списывается).
-    // ФИО и группа запоминаются такими, какие они сейчас.
+    // ФИО, группа, льгота и бюджетность запоминаются на момент выдачи.
     public bool record_meal (int64 student_id, MealType type, DateTime when) throws DatabaseError {
         var stmt = prepare ("""
-            INSERT INTO meals (student_id, meal_date, meal_type, issued_at, full_name, group_name)
-            VALUES (?1, ?2, ?3, ?4, (SELECT full_name  FROM students WHERE id = ?1),
-                                    (SELECT group_name FROM students WHERE id = ?1))
+            INSERT INTO meals (student_id, meal_date, meal_type, issued_at, full_name, group_name, benefit_category, is_budget)
+            VALUES (?1, ?2, ?3, ?4, (SELECT full_name FROM students WHERE id = ?1),
+                                    (SELECT group_name FROM students WHERE id = ?1),
+                                    (SELECT benefit_category FROM students WHERE id = ?1),
+                                    (SELECT is_budget FROM students WHERE id = ?1))
             ON CONFLICT (student_id, meal_date, meal_type) DO NOTHING
         """);
         stmt.bind_int64 (1, student_id);
@@ -329,7 +357,15 @@ public class Database {
     public DayRecord student_day (Student student, DateTime day) throws DatabaseError {
         var stmt = prepare ("""
             SELECT max(issued_at) FILTER (WHERE meal_type = 'breakfast'),
-                   max(issued_at) FILTER (WHERE meal_type = 'lunch')
+                   max(issued_at) FILTER (WHERE meal_type = 'lunch'),
+                   max(full_name) FILTER (WHERE meal_type = 'breakfast'),
+                   max(group_name) FILTER (WHERE meal_type = 'breakfast'),
+                   max(benefit_category) FILTER (WHERE meal_type = 'breakfast'),
+                   max(is_budget) FILTER (WHERE meal_type = 'breakfast'),
+                   max(full_name) FILTER (WHERE meal_type = 'lunch'),
+                   max(group_name) FILTER (WHERE meal_type = 'lunch'),
+                   max(benefit_category) FILTER (WHERE meal_type = 'lunch'),
+                   max(is_budget) FILTER (WHERE meal_type = 'lunch')
             FROM meals WHERE student_id = ? AND meal_date = ?
         """);
         stmt.bind_int64 (1, student.id);
@@ -338,26 +374,28 @@ public class Database {
         return new DayRecord () {
             student = student,
             breakfast_at = nullable_text (stmt, 0),
-            lunch_at = nullable_text (stmt, 1)
+            lunch_at = nullable_text (stmt, 1),
+            breakfast_state = nullable_text (stmt, 0) == null ? null : read_student_state (stmt, 2),
+            lunch_state = nullable_text (stmt, 1) == null ? null : read_student_state (stmt, 6)
         };
     }
 
     // Все, кто получал питание в этот день, по группам и ФИО того дня.
-    // Если в один день ФИО или группа записаны по-разному (поменяли между
-    // завтраком и обедом) — по последней выдаче.
+    // Общая подпись — по последней выдаче; полное состояние хранится отдельно
+    // для завтрака и обеда, в том числе при изменениях между ними.
     public GenericArray<DayRecord> day_records (DateTime day) throws DatabaseError {
         var stmt = prepare ("""
             SELECT s.id, (SELECT series * 65536 + number FROM cards WHERE student_id = s.id),
-                   s.full_name, s.group_name,
-                   max(m.issued_at) FILTER (WHERE m.meal_type = 'breakfast'),
-                   max(m.issued_at) FILTER (WHERE m.meal_type = 'lunch'),
-                   (SELECT coalesce (full_name, s.full_name) FROM meals
-                    WHERE student_id = s.id AND meal_date = ?1 ORDER BY id DESC LIMIT 1) AS issued_name,
-                   (SELECT coalesce (group_name, s.group_name) FROM meals
-                    WHERE student_id = s.id AND meal_date = ?1 ORDER BY id DESC LIMIT 1) AS issued_group
-            FROM meals AS m JOIN students AS s ON s.id = m.student_id
-            WHERE m.meal_date = ?1
-            GROUP BY s.id
+                   s.full_name, s.group_name, s.benefit_category, s.is_budget,
+                   b.issued_at, l.issued_at,
+                   coalesce (CASE WHEN l.id IS NULL OR b.id > l.id THEN b.full_name ELSE l.full_name END, s.full_name) AS issued_name,
+                   coalesce (CASE WHEN l.id IS NULL OR b.id > l.id THEN b.group_name ELSE l.group_name END, s.group_name) AS issued_group,
+                   b.full_name, b.group_name, b.benefit_category, b.is_budget,
+                   l.full_name, l.group_name, l.benefit_category, l.is_budget
+            FROM students AS s
+            LEFT JOIN meals AS b ON b.student_id = s.id AND b.meal_date = ?1 AND b.meal_type = 'breakfast'
+            LEFT JOIN meals AS l ON l.student_id = s.id AND l.meal_date = ?1 AND l.meal_type = 'lunch'
+            WHERE b.id IS NOT NULL OR l.id IS NOT NULL
             ORDER BY issued_group, issued_name
         """);
         stmt.bind_text (1, format_date (day));
@@ -365,10 +403,12 @@ public class Database {
         while (step_row (stmt)) {
             result.add (new DayRecord () {
                 student = read_student (stmt, 0),
-                breakfast_at = nullable_text (stmt, 4),
-                lunch_at = nullable_text (stmt, 5),
-                issued_name = stmt.column_text (6),
-                issued_group = stmt.column_text (7)
+                breakfast_at = nullable_text (stmt, 6),
+                lunch_at = nullable_text (stmt, 7),
+                issued_name = stmt.column_text (8),
+                issued_group = stmt.column_text (9),
+                breakfast_state = nullable_text (stmt, 6) == null ? null : read_student_state (stmt, 10),
+                lunch_state = nullable_text (stmt, 7) == null ? null : read_student_state (stmt, 14)
             });
         }
         return result;
@@ -489,7 +529,7 @@ public class Database {
 
     // Учебные годы (по году начала), в которых после последней выгрузки появились
     // новые записи (если выгрузок не было — все) или ученику поменяли ФИО или
-    // группу (очередь export_queue). Их файлы нужно пересобрать.
+    // группу (очередь export_queue). Льгота и бюджетность в журнале не меняются.
     public int[] changed_school_years () throws DatabaseError {
         var years = school_years ("WHERE id > coalesce ((SELECT max (last_meal_id) FROM exports), 0)");
         var stmt = prepare ("SELECT DISTINCT school_year FROM export_queue");
@@ -670,13 +710,38 @@ public class Database {
         return stmt.column_type (column) == Sqlite.NULL ? null : stmt.column_text (column);
     }
 
-    // Столбцы id, card_uid, full_name, group_name начиная с first
+    private static StudentState read_student_state (Sqlite.Statement stmt, int first) {
+        return new StudentState () {
+            full_name = nullable_text (stmt, first) ?? "Не указано",
+            group_name = nullable_text (stmt, first + 1) ?? "Не указана",
+            benefit_category = nullable_text (stmt, first + 2),
+            is_budget = stmt.column_type (first + 3) == Sqlite.NULL ? null : (bool?) (stmt.column_int (first + 3) != 0)
+        };
+    }
+
+    private static void bind_student_details (Sqlite.Statement stmt, int first,
+                                              string? benefit_category, bool? is_budget) {
+        if (benefit_category == null) {
+            stmt.bind_null (first);
+        } else {
+            stmt.bind_text (first, benefit_category);
+        }
+        if (is_budget == null) {
+            stmt.bind_null (first + 1);
+        } else {
+            stmt.bind_int (first + 1, is_budget ? 1 : 0);
+        }
+    }
+
+    // Столбцы id, card_uid, full_name, group_name, benefit_category, is_budget начиная с first
     private static Student read_student (Sqlite.Statement stmt, int first) {
         return new Student () {
             id = stmt.column_int64 (first),
             card_uid = stmt.column_type (first + 1) == Sqlite.NULL ? null : (int64?) stmt.column_int64 (first + 1),
             full_name = stmt.column_text (first + 2),
-            group_name = stmt.column_text (first + 3)
+            group_name = stmt.column_text (first + 3),
+            benefit_category = nullable_text (stmt, first + 4),
+            is_budget = stmt.column_type (first + 5) == Sqlite.NULL ? null : (bool?) (stmt.column_int (first + 5) != 0)
         };
     }
 

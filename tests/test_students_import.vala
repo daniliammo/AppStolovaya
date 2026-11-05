@@ -124,6 +124,11 @@ void test_import () throws Error {
     assert_cmpstr (db.find_card (uid (182, 31128)).card_type, CompareOperator.EQ, "");
     assert_cmpstr (db.find_student_by_card (uid (120, 9886)).full_name, CompareOperator.EQ, "Гуров Данил Дмитриевич");
 
+    // Старый формат импорта не стирает уже заполненные льготу и бюджетность.
+    student.benefit_category = "Дети мобилизованных ССЗ";
+    student.is_budget = false;
+    db.update_student (student);
+
     // Повторный импорт ничего не меняет
     result = StudentsImport.import_file (db, path);
     assert_cmpint (result.added, CompareOperator.EQ, 0);
@@ -137,6 +142,9 @@ void test_import () throws Error {
     assert_cmpint (result.updated, CompareOperator.EQ, 1);
     assert_cmpint ((int) db.find_student_by_card (uid (182, 31128)).id, CompareOperator.EQ, (int) student.id);
     assert_cmpstr (db.find_student_by_card (uid (182, 31128)).group_name, CompareOperator.EQ, "ПК22КР26");
+    var updated = db.find_student_by_card (uid (182, 31128));
+    assert_cmpstr (updated.benefit_category, CompareOperator.EQ, "Дети мобилизованных ССЗ");
+    assert_true (updated.is_budget != null && updated.is_budget == false);
 
     FileUtils.remove (path);
     DirUtils.remove (dir);
