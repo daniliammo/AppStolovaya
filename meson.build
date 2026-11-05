@@ -127,7 +127,7 @@ test('excel-export', executable('test-excel-export',
   'src/excel_export.vala',
   'tests/test_excel_export.vala',
   dependencies: [glib_deps, sqlite_dep, xlsxwriter_dep, posix_dep],
-))
+), env: ['G_TEST_SRCDIR=' + meson.project_source_root()])
 
 test('students-import', executable('test-students-import',
   database_sources,

@@ -89,6 +89,15 @@ namespace Xlsx {
         [CCode (cname = "worksheet_fit_to_pages")]
         public void fit_to_pages (uint16 width, uint16 height);
 
+        [CCode (cname = "worksheet_set_landscape")]
+        public void set_landscape ();
+
+        [CCode (cname = "worksheet_set_paper")]
+        public void set_paper (uint8 paper_type);
+
+        [CCode (cname = "worksheet_repeat_rows")]
+        public Error repeat_rows (uint32 first_row, uint32 last_row);
+
         // Объединить ячейки и записать в них строку
         [CCode (cname = "worksheet_merge_range")]
         public Error merge_range (uint32 first_row, uint16 first_col, uint32 last_row, uint16 last_col,
@@ -108,6 +117,15 @@ namespace Xlsx {
     public class Format {
         [CCode (cname = "format_set_bold")]
         public void set_bold ();
+
+        [CCode (cname = "format_set_font_size")]
+        public void set_font_size (double size);
+
+        [CCode (cname = "format_set_rotation")]
+        public void set_rotation (int16 angle);
+
+        [CCode (cname = "format_set_border")]
+        public void set_border (Border style);
 
         [CCode (cname = "format_set_font_strikeout")]
         public void set_font_strikeout ();

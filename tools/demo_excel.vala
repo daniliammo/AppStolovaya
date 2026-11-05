@@ -30,7 +30,9 @@ int main (string[] args) {
         var db = new Database (":memory:");
         int64[] ids = {};
         for (int i = 0; i < STUDENTS.length[0]; i++) {
-            ids += db.add_student (STUDENTS[i, 0], STUDENTS[i, 1], i + 1);
+            ids += db.add_student (STUDENTS[i, 0], STUDENTS[i, 1], i + 1,
+                i == 14 ? null : Student.BENEFIT_CATEGORIES[i % Student.BENEFIT_CATEGORIES.length],
+                i == 14 ? null : (bool?) (i % 3 != 0));
         }
 
         // Будни с 1 сентября текущего учебного года по сегодня

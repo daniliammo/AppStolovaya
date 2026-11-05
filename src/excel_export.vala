@@ -1,6 +1,6 @@
 // Выгрузка журнала выдачи в Excel: один файл на учебный год, с 1 сентября
-// по 30 июня (столовая_2026-2027.xlsx), в нём лист «Итого» и по листу
-// на каждый день выдачи. Учебный год обозначается годом начала: 2026 — это 2026–2027.
+// по 31 августа (столовая_2026-2027.xlsx): общие итоги, категории за год,
+// месячные отчёты по завтракам и обедам и ежедневные поимённые листы.
 //
 // libxlsxwriter не умеет дописывать в существующий файл, поэтому файл года
 // каждый раз собирается заново из базы: сначала во временный файл, затем
@@ -130,6 +130,7 @@ public class ExcelExporter {
         header.set_bold ();
         header.set_bg_color (0xDDEBF7);
         header.set_bottom (Xlsx.Border.THIN);
+        header.set_text_wrap ();
 
         unowned var total = workbook.add_format ();
         total.set_bold ();
@@ -157,6 +158,7 @@ public class ExcelExporter {
         write_row (summary, 1, { "Дата", "Завтраков", "Обедов" }, header);
 
         var days = database.meal_days (school_year);
+        var categories = new CategoryReport ();
         int year_breakfasts = 0, year_lunches = 0;
         unowned Xlsx.Worksheet last_sheet = summary;
 
@@ -164,6 +166,9 @@ public class ExcelExporter {
             var date = parse_date (days[i]);
             var title = date.format ("%d.%m.%Y");
             var records = database.day_records (date);
+            foreach (var record in records) {
+                categories.add (date, record);
+            }
 
             unowned var sheet = add_sheet (workbook, title);
             var counts = write_day_sheet (sheet, title, records, header, total, centered, note, struck);
@@ -181,6 +186,8 @@ public class ExcelExporter {
         summary.write_number (total_row, 1, year_breakfasts, total);
         summary.write_number (total_row, 2, year_lunches, total);
 
+        write_category_reports (workbook, school_year, categories, note);
+
         // При открытии файла показываем последний день
         last_sheet.activate ();
     }
@@ -196,26 +203,45 @@ public class ExcelExporter {
         foreach (var record in records) {
             name_width = double.max (name_width, shown_width (record.issued_name, record.student.full_name));
             group_width = double.max (group_width, shown_width (record.issued_group, record.student.group_name));
+            foreach (var state in new StudentState?[] { record.breakfast_state, record.lunch_state }) {
+                if (state != null) {
+                    name_width = double.max (name_width, shown_width (state.full_name, record.student.full_name));
+                    group_width = double.max (group_width, shown_width (state.group_name, record.student.group_name));
+                }
+            }
         }
         sheet.set_column (0, 0, name_width);
         sheet.set_column (1, 1, group_width);
         sheet.set_column (2, 2, 12, centered);
         sheet.set_column (3, 4, 10, centered);
+        sheet.set_column (5, 5, 32);
+        sheet.set_column (6, 6, 17);
+        sheet.set_landscape ();
+        sheet.set_paper (9);  // A4
         sheet.fit_to_pages (1, 0);  // печать: все столбцы на одной странице по ширине
-        write_note (sheet, 4, 2, note);
-        write_row (sheet, 1, { "ФИО", "Группа", "Дата", "Завтрак", "Обед" }, header);
+        write_note (sheet, 6, 2, note);
+        write_row (sheet, 1, { "ФИО", "Группа", "Дата", "Завтрак", "Обед", "Категория на момент выдачи", "Бюджетность на момент выдачи" }, header);
+        sheet.set_row (1, 32);
+        sheet.repeat_rows (0, 1);
 
         MealCounts counts = { 0, 0 };
         uint32 row = 2;
         foreach (var record in records) {
-            write_row (sheet, row, { "", "", date, short_time (record.breakfast_at), short_time (record.lunch_at) });
-            write_changed (sheet, row, 0, record.issued_name, record.student.full_name, struck);
-            write_changed (sheet, row, 1, record.issued_group, record.student.group_name, struck);
-            var change = record.change_note ();
-            if (change != null) {
-                sheet.write_comment (row, 0, change, Xlsx.CommentOptions () { width = 320, height = 90 });
+            var breakfast = record.breakfast_state;
+            var lunch = record.lunch_state;
+            // Если между завтраком и обедом сведения поменялись, две строки
+            // показывают оба состояния, каждая со своим временем выдачи.
+            if (breakfast != null && lunch != null && same_state (breakfast, lunch)) {
+                write_day_row (sheet, row++, date, record.student, breakfast,
+                    record.breakfast_at, record.lunch_at, struck);
+            } else {
+                if (breakfast != null) {
+                    write_day_row (sheet, row++, date, record.student, breakfast, record.breakfast_at, null, struck);
+                }
+                if (lunch != null) {
+                    write_day_row (sheet, row++, date, record.student, lunch, null, record.lunch_at, struck);
+                }
             }
-            row++;
             if (record.breakfast_at != null) {
                 counts.breakfasts++;
             }
@@ -228,6 +254,195 @@ public class ExcelExporter {
         sheet.write_number (row, 3, counts.breakfasts, total);
         sheet.write_number (row, 4, counts.lunches, total);
         return counts;
+    }
+
+    private static bool same_state (StudentState a, StudentState b) {
+        return a.full_name == b.full_name && a.group_name == b.group_name
+            && a.benefit_category == b.benefit_category && a.is_budget == b.is_budget;
+    }
+
+    private static void write_day_row (Xlsx.Worksheet sheet, uint32 row, string date, Student current,
+                                       StudentState state, string? breakfast, string? lunch, Xlsx.Format struck) {
+        write_row (sheet, row, { "", "", date, short_time (breakfast), short_time (lunch),
+            state.benefit_category ?? "Не указана", budget_name (state.is_budget) });
+        write_changed (sheet, row, 0, state.full_name, current.full_name, struck);
+        write_changed (sheet, row, 1, state.group_name, current.group_name, struck);
+        var change = new DayRecord () {
+            student = current, issued_name = state.full_name, issued_group = state.group_name
+        };
+        var message = change.change_note ();
+        if (message != null) {
+            sheet.write_comment (row, 0, message, Xlsx.CommentOptions () { width = 320, height = 90 });
+        }
+    }
+
+    private static string budget_name (bool? budget) {
+        return budget == null ? "Не указана" : budget ? "Бюджет" : "Не бюджет (ВБ)";
+    }
+
+    private const string[] MONTHS = {
+        "Сентябрь", "Октябрь", "Ноябрь", "Декабрь", "Январь", "Февраль",
+        "Март", "Апрель", "Май", "Июнь", "Июль", "Август"
+    };
+
+    private void write_category_reports (Xlsx.Workbook workbook, int school_year,
+                                          CategoryReport report, Xlsx.Format note) throws ExportError {
+        unowned var header = workbook.add_format ();
+        header.set_bold ();
+        header.set_bg_color (0x234E70);
+        header.set_font_color (0xFFFFFF);
+        header.set_border (Xlsx.Border.THIN);
+        header.set_align (Xlsx.Align.CENTER);
+        header.set_align (Xlsx.Align.VERTICAL_CENTER);
+        header.set_text_wrap ();
+
+        unowned var cell = workbook.add_format ();
+        cell.set_border (Xlsx.Border.THIN);
+        cell.set_align (Xlsx.Align.CENTER);
+        cell.set_align (Xlsx.Align.VERTICAL_CENTER);
+        cell.set_font_size (10);
+
+        unowned var label = workbook.add_format ();
+        label.set_border (Xlsx.Border.THIN);
+        label.set_text_wrap ();
+        label.set_align (Xlsx.Align.VERTICAL_CENTER);
+        label.set_font_size (10);
+
+        unowned var budget = workbook.add_format ();
+        budget.set_border (Xlsx.Border.THIN);
+        budget.set_bold ();
+        budget.set_bg_color (0xF0F5FA);
+        budget.set_align (Xlsx.Align.CENTER);
+        budget.set_align (Xlsx.Align.VERTICAL_CENTER);
+        budget.set_rotation (90);
+
+        unowned var total = workbook.add_format ();
+        total.set_border (Xlsx.Border.THIN);
+        total.set_bg_color (0xDCEEDF);
+        total.set_bold ();
+        total.set_align (Xlsx.Align.CENTER);
+        total.set_align (Xlsx.Align.VERTICAL_CENTER);
+        total.set_text_wrap ();
+
+        unowned var title = workbook.add_format ();
+        title.set_bold ();
+        title.set_font_size (18);
+        title.set_font_color (0x17365D);
+        title.set_align (Xlsx.Align.CENTER);
+
+        write_category_sheet (workbook, school_year, -1, 0, report, header, cell, label, budget, total, title, note);
+        for (int month = 0; month < 12; month++) {
+            for (int meal = 0; meal < 2; meal++) {
+                write_category_sheet (workbook, school_year, month, meal, report, header, cell, label, budget, total, title, note);
+            }
+        }
+    }
+
+    // Месяц: № | Бюджетность | Категория | 1 .. последний день | Дето/дни.
+    // Год:   № | Бюджетность | Категория | Завтраков | Обедов | Всего.
+    private void write_category_sheet (Xlsx.Workbook workbook, int school_year, int month, int meal,
+                                       CategoryReport report, Xlsx.Format header, Xlsx.Format cell,
+                                       Xlsx.Format label, Xlsx.Format budget, Xlsx.Format total,
+                                       Xlsx.Format title, Xlsx.Format note) throws ExportError {
+        var annual = month < 0;
+        var year = month < 4 ? school_year : school_year + 1;
+        var month_date = annual ? null : new DateTime.local (year, (month + 8) % 12 + 1, 1, 0, 0, 0);
+        var day_count = annual ? 0 : month_date.add_months (1).add_days (-1).get_day_of_month ();
+        var meal_name = meal == 0 ? "завтраки" : "обеды";
+        var name = annual ? "Категории за год" : @"$(MONTHS[month]) $year $meal_name";
+        unowned var sheet = add_sheet (workbook, name);
+        uint16 last_col = annual ? 5 : (uint16) (day_count + 3);
+        sheet.set_column (0, 0, 5);
+        sheet.set_column (1, 1, annual ? 20 : 6);
+        sheet.set_column (2, 2, 32);
+        sheet.set_column (3, last_col, annual ? 18 : 4.5, cell);
+        sheet.set_column (last_col, last_col, annual ? 23 : 12);
+        write_note (sheet, last_col, annual ? 2 : 1, note);
+        sheet.merge_range (1, 0, 1, last_col,
+            annual ? @"Отчёт по категориям за $school_year–$(school_year + 1) учебный год"
+                   : @"$(MONTHS[month]) $year — $meal_name", title);
+        sheet.set_row (1, 30);
+        sheet.merge_range (2, 0, 2, last_col,
+            "Фактически выданное питание. Сведения о студенте — на момент каждой выдачи; неизвестные значения учтены отдельно.", label);
+        sheet.set_row (2, annual ? 30 : 20);
+        write_row (sheet, 3, { "№", annual ? "Бюджетность" : "Б / ВБ", "Категория" }, header);
+        if (annual) {
+            sheet.write_string (3, 3, "Завтраков", header);
+            sheet.write_string (3, 4, "Обедов", header);
+            sheet.write_string (3, 5, "Всего приёмов пищи", header);
+        } else {
+            for (int day = 1; day <= day_count; day++) {
+                sheet.write_number (3, (uint16) (day + 2), day, header);
+            }
+            sheet.write_string (3, last_col, "Дето/дни", header);
+        }
+        sheet.set_row (3, 32);
+
+        uint32 row = 4;
+        for (int group = 0; group < 3; group++) {
+            var group_name = group == 0 ? "БЮДЖЕТ" : group == 1 ? "НЕ БЮДЖЕТ (ВБ)" : "БЮДЖЕТНОСТЬ НЕ УКАЗАНА";
+            var first_row = row;
+            for (int category = 0; category < report.category_count; category++) {
+                sheet.set_row (row, 28);
+                sheet.write_number (row, 0, category + 1, cell);
+                sheet.write_string (row, 2, category < Student.BENEFIT_CATEGORIES.length
+                    ? Student.BENEFIT_CATEGORIES[category] : "Категория не указана", label);
+                write_category_numbers (sheet, row, report, month, meal, day_count, group, category, category, cell, total);
+                row++;
+            }
+            sheet.merge_range (first_row, 1, row - 1, 1, group_name, budget);
+            write_category_total (sheet, row++, @"Итого: $group_name", report, month, meal, day_count, group, 0, report.category_count - 1, total);
+        }
+        write_category_total (sheet, row++, "Итого льготное питание", report, month, meal, day_count,
+            -1, 0, Student.BENEFIT_CATEGORIES.length - 2, total);
+        write_category_total (sheet, row++, "Итого нельготное питание", report, month, meal, day_count,
+            -1, Student.BENEFIT_CATEGORIES.length - 1, Student.BENEFIT_CATEGORIES.length - 1, total);
+        write_category_total (sheet, row++, "Категория не указана", report, month, meal, day_count,
+            -1, report.category_count - 1, report.category_count - 1, total);
+        write_category_total (sheet, row++, annual ? "Всего за учебный год" : @"Всего: $meal_name", report,
+            month, meal, day_count, -1, 0, report.category_count - 1, total);
+
+        sheet.merge_range (row + 1, 0, row + 1, last_col, "Социальный педагог: __________________________", label);
+        sheet.merge_range (row + 2, 0, row + 2, last_col, "Заместитель директора по УВР: __________________________", label);
+        sheet.set_row (row + 1, 25);
+        sheet.set_row (row + 2, 25);
+        sheet.freeze_panes (4, 3);
+        sheet.repeat_rows (0, 3);
+        sheet.set_landscape ();
+        sheet.set_paper (annual ? 9 : 8);  // A4 / A3, как в образце
+        sheet.fit_to_pages (1, 0);
+    }
+
+    private static void write_category_total (Xlsx.Worksheet sheet, uint32 row, string text, CategoryReport report,
+                                              int month, int meal, int days, int budget, int first, int last,
+                                              Xlsx.Format total) {
+        sheet.merge_range (row, 0, row, 2, text, total);
+        sheet.set_row (row, 28);
+        write_category_numbers (sheet, row, report, month, meal, days, budget, first, last, total, total);
+    }
+
+    private static void write_category_numbers (Xlsx.Worksheet sheet, uint32 row, CategoryReport report,
+                                                int month, int meal, int days, int budget, int first, int last,
+                                                Xlsx.Format cell, Xlsx.Format total) {
+        if (month < 0) {
+            var breakfasts = sum (report.counts_for (-1, 0, budget, first, last));
+            var lunches = sum (report.counts_for (-1, 1, budget, first, last));
+            sheet.write_number (row, 3, breakfasts, cell);
+            sheet.write_number (row, 4, lunches, cell);
+            sheet.write_number (row, 5, breakfasts + lunches, total);
+        } else {
+            var counts = report.counts_for (month, meal, budget, first, last);
+            for (int day = 0; day < days; day++) {
+                sheet.write_number (row, (uint16) (day + 3), counts[day], cell);
+            }
+            sheet.write_number (row, (uint16) (days + 3), sum (counts), total);
+        }
+    }
+
+    private static int sum (int[] values) {
+        int result = 0;
+        foreach (var value in values) result += value;
+        return result;
     }
 
     // Предупреждение NOTE в первой строке на ширину таблицы (столбцы 0..last_col).
@@ -290,5 +505,51 @@ public class ExcelExporter {
             throw new ExportError.FAILED ("Неверная дата в базе: %s", date);
         }
         return new DateTime.local (int.parse (parts[0]), int.parse (parts[1]), int.parse (parts[2]), 0, 0, 0);
+    }
+}
+
+// Счётчики строятся из снимков выдач, а не из нынешних карточек студентов.
+private class CategoryReport {
+    public int category_count { get { return Student.BENEFIT_CATEGORIES.length + 1; } }
+    private int[] counts;
+
+    public CategoryReport () {
+        counts = new int[12 * 2 * 3 * category_count * 31];
+    }
+
+    private int index (int month, int meal, int budget, int category, int day) {
+        return ((((month * 2 + meal) * 3 + budget) * category_count + category) * 31) + day;
+    }
+
+    public void add (DateTime date, DayRecord record) {
+        add_state (date, 0, record.breakfast_state);
+        add_state (date, 1, record.lunch_state);
+    }
+
+    private void add_state (DateTime date, int meal, StudentState? state) {
+        if (state == null) return;
+        int category = category_count - 1;
+        for (int i = 0; i < Student.BENEFIT_CATEGORIES.length; i++) {
+            if (state.benefit_category == Student.BENEFIT_CATEGORIES[i]) {
+                category = i;
+                break;
+            }
+        }
+        var budget = state.is_budget == null ? 2 : state.is_budget ? 0 : 1;
+        counts[index ((date.get_month () + 3) % 12, meal, budget, category, date.get_day_of_month () - 1)]++;
+    }
+
+    public int[] counts_for (int month, int meal, int budget, int first_category, int last_category) {
+        var result = new int[31];
+        for (int m = month < 0 ? 0 : month; m <= (month < 0 ? 11 : month); m++) {
+            for (int b = budget < 0 ? 0 : budget; b <= (budget < 0 ? 2 : budget); b++) {
+                for (int c = first_category; c <= last_category; c++) {
+                    for (int day = 0; day < 31; day++) {
+                        result[day] += counts[index (m, meal, b, c, day)];
+                    }
+                }
+            }
+        }
+        return result;
     }
 }

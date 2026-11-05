@@ -108,6 +108,58 @@ void test_export_year_bad_directory () throws Error {
     }
 }
 
+DateTime day (int year, int month, int date, int hour = 8) {
+    return new DateTime.local (year, month, date, hour, 0, 0);
+}
+
+void test_category_report () throws Error {
+    var db = new Database (":memory:");
+    var a = db.add_student ("Алексеев Алексей", "5А", 1, "Сироты КРС", true);
+    var b = db.add_student ("Борисов Борис", "5Б", 2, "Многодетные (ССЗ)", false);
+    var c = db.add_student ("Без льготы", "5А", 3, "КРС нельготная категория", true);
+    var d = db.add_student ("Сведения неизвестны", "5Б", 4);
+    var e = db.add_student ("Бюджетность неизвестна", "5Б", 5, "Инвалиды ССЗ");
+    var f = db.add_student ("Категория неизвестна", "5В", 6, null, false);
+    db.record_meal (a, MealType.BREAKFAST, day (2023, 8, 31));  // другой учебный год
+    foreach (var id in new int64[] { a, c, e, f }) {
+        db.record_meal (id, MealType.BREAKFAST, day (2023, 9, 1));
+    }
+    foreach (var id in new int64[] { a, b, c, d }) {
+        db.record_meal (id, MealType.LUNCH, day (2023, 9, 1, 12));
+    }
+    db.record_meal (a, MealType.BREAKFAST, day (2023, 9, 2));  // суббота тоже учитывается
+    var student = db.find_student_by_card (1);
+    student.full_name = "Алексеев Андрей";
+    student.group_name = "6А";
+    student.benefit_category = "Дети мобилизованных ССЗ";
+    student.is_budget = false;
+    db.update_student (student);
+    db.record_meal (a, MealType.LUNCH, day (2023, 9, 2, 12));
+    db.record_meal (b, MealType.BREAKFAST, day (2023, 10, 1));
+    db.record_meal (a, MealType.LUNCH, day (2024, 1, 1, 12));
+    db.record_meal (a, MealType.BREAKFAST, day (2024, 2, 29));
+    db.record_meal (a, MealType.LUNCH, day (2024, 2, 29, 12));
+    db.record_meal (b, MealType.BREAKFAST, day (2024, 2, 29));
+    db.record_meal (c, MealType.LUNCH, day (2024, 8, 31, 12));
+    db.record_meal (a, MealType.LUNCH, day (2024, 9, 1, 12));  // следующий учебный год
+
+    var before = new ExcelExporter (db, Path.build_filename (tmp_dir, "Категории"));
+    var before_path = before.export_school_year (2023);
+    student.benefit_category = "Сироты (ПП)";
+    student.is_budget = true;
+    db.update_student (student);
+    assert_false (db.record_meal (a, MealType.BREAKFAST, day (2023, 9, 1)));
+    var after = new ExcelExporter (db, Path.build_filename (tmp_dir, "Категории после"));
+    var after_path = after.export_school_year (2023);
+
+    var source = Environment.get_variable ("G_TEST_SRCDIR") ?? ".";
+    string output, errors;
+    int status;
+    Process.spawn_sync (null, { "python3", Path.build_filename (source, "tests", "verify_category_export.py"),
+        before_path, after_path }, null, SpawnFlags.SEARCH_PATH, null, out output, out errors, out status);
+    if (status != 0) error ("Проверка отчёта: %s\n%s", output, errors);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     try {
@@ -119,9 +171,10 @@ int main (string[] args) {
     Test.add_func ("/excel/partial-failure", () => wrap (test_export_partial_failure));
     Test.add_func ("/excel/after-rename", () => wrap (test_export_after_rename));
     Test.add_func ("/excel/bad-directory", () => wrap (test_export_year_bad_directory));
+    Test.add_func ("/excel/categories-and-snapshots", () => wrap (test_category_report));
     var result = Test.run ();
 
-    foreach (var name in new string[] { "Столовая", "Сбой", "Переименование" }) {
+    foreach (var name in new string[] { "Столовая", "Сбой", "Переименование", "Категории", "Категории после" }) {
         var dir = Path.build_filename (tmp_dir, name);
         foreach (var year in new int[] { 2023, 2024, 2025 }) {
             FileUtils.remove (Path.build_filename (dir, @"столовая_$year-$(year + 1).xlsx"));
