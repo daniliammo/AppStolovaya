@@ -40,7 +40,6 @@ app_link_args = portable ? ['-Wl,--disable-new-dtags,-rpath,$ORIGIN'] : []
 
 conf = configuration_data()
 conf.set('PORTABLE', portable.to_string())
-conf.set_quoted('DATABASE_PATH', meson.project_source_root() / 'canteen.db')
 conf.set_quoted('VERSION', meson.project_version())
 config_vala = configure_file(
   input: 'src/config.vala.in',

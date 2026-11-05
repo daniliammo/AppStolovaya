@@ -67,11 +67,9 @@ public class App : Adw.Application {
         add_action (quit_action);
         set_accels_for_action ("app.quit", { "<Control>q" });
 
-        // В переносимой сборке база — в папке данных пользователя
-        // (~/.local/share/Столовая): переживает замену папки с программой
-        database_path = Config.PORTABLE
-            ? Path.build_filename (Environment.get_user_data_dir (), "Столовая", "canteen.db")
-            : Config.DATABASE_PATH;
+        // Все сборки используют одну базу: иначе они перезаписывают общий
+        // Excel-файл разными журналами и прошлые листы исчезают.
+        database_path = Path.build_filename (Environment.get_user_data_dir (), "Столовая", "canteen.db");
         if (open_database ()) {
             start_services ();
         }

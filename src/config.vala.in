@@ -1,10 +1,7 @@
 // Генерируется meson из config.vala.in, не редактировать build/config.vala.
 namespace Config {
-    // Переносимая сборка (./build.sh --package): путь к базе ниже не действует,
-    // она находится во время работы
+    // Переносимая сборка (./build.sh --package).
     public const bool PORTABLE = @PORTABLE@;
-    // База данных лежит в корне репозитория
-    public const string DATABASE_PATH = @DATABASE_PATH@;
     // Версия из meson.build
     public const string VERSION = @VERSION@;
 }
