@@ -66,6 +66,7 @@ database_sources = files(
 
 app = executable('Столовая',
   'src/main.vala',
+  'src/export_notification.vala',
   resources,
   config_vala,
   database_sources,

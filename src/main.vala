@@ -170,13 +170,13 @@ public class App : Adw.Application {
     // Закрытие программы: выгружаем всё, что изменилось
     protected override void shutdown () {
         if (exporter != null) {
-            // Программа закрывается — кнопки нажимать будет некому
+            // Нажатие на уведомление после выхода обработает отдельный процесс
             run_export (0, false);
             // Нового нечего было записать, а уведомление о прошлой выгрузке
             // ещё на экране — иначе оно пропадёт вместе с программой
             if (export_notification != 0) {
                 replace_export_notification (export_title (exported_files.length),
-                    string.joinv ("\n", exported_files));
+                    string.joinv ("\n", exported_files), exported_files);
             }
         }
         base.shutdown ();
@@ -213,48 +213,33 @@ public class App : Adw.Application {
         }
         var body = string.joinv ("\n", names);
         if (!interactive) {
-            replace_export_notification (export_title (files.length), body);
+            replace_export_notification (export_title (files.length), body, names);
             return;
         }
         exported_files = names;
         export_notification = send_desktop_notification (export_title (files.length), body,
-            "x-office-spreadsheet", export_notification, { "open-folder", "Открыть папку" });
+            "x-office-spreadsheet", export_notification, { "default", "Открыть папку", "open-folder", "Открыть папку" });
         warn_if_open (files);
     }
 
-    // Уведомление о выгрузке, которое переживёт выход программы: прежнее
-    // закрываем, новое шлёт отдельный процесс (см. send_detached_notification)
-    private void replace_export_notification (string title, string body) {
+    // Уведомление переживёт выход программы, а помощник обработает нажатие.
+    private void replace_export_notification (string title, string body, string[] files) {
         close_desktop_notification (export_notification);
         export_notification = 0;
+        send_detached_notification (title, body, files);
         exported_files = {};
-        send_detached_notification (title, body);
     }
 
-    // GNOME Shell убирает уведомления программы, когда она завершается, если
-    // узнал её по окну (по PID отправителя) — так бывает, пока окно открыто.
-    // Уведомление от отдельного процесса gdbus без окон ни к какой программе
-    // не привязано и остаётся на экране после выхода. Подсказку desktop-entry
-    // ему не передаём: с ней GNOME привяжет его к программе и уберёт,
-    // как только gdbus завершится.
-    private static void send_detached_notification (string title, string body) {
-        string[] argv = {
-            "gdbus", "call", "--session",
-            "--dest", "org.freedesktop.Notifications",
-            "--object-path", "/org/freedesktop/Notifications",
-            "--method", "org.freedesktop.Notifications.Notify",
-            "--",  // иначе -1 в конце gdbus примет за параметр
-            new Variant.string ("Столовая").print (false), "0",
-            new Variant.string ("x-office-spreadsheet").print (false),
-            new Variant.string (title).print (false),
-            new Variant.string (body).print (false),
-            "[]", "{}", "-1"
-        };
+    private static void send_detached_notification (string title, string body, string[] files = {}) {
         try {
+            string[] argv = { FileUtils.read_link ("/proc/self/exe"), ExportNotification.FLAG, title, body };
+            foreach (var file in files) {
+                argv += file;
+            }
             Process.spawn_async (null, argv, null,
-                SpawnFlags.SEARCH_PATH | SpawnFlags.STDOUT_TO_DEV_NULL, null, null);
-        } catch (SpawnError e) {
-            warning ("gdbus: %s", e.message);
+                SpawnFlags.STDOUT_TO_DEV_NULL, null, null);
+        } catch (Error e) {
+            warning ("Уведомление после выхода: %s", e.message);
             send_desktop_notification (title, body);
         }
     }
@@ -576,8 +561,9 @@ public class App : Adw.Application {
                         activation_token = parameters.get_child_value (1).get_string ();
                         break;
                     case "ActionInvoked":
-                        if (parameters.get_child_value (1).get_string () == "open-folder") {
-                            show_in_file_manager (exported_files, activation_token);
+                        var action = parameters.get_child_value (1).get_string ();
+                        if (action == "default" || action == "open-folder") {
+                            ExportNotification.show_in_file_manager (exported_files, activation_token);
                         }
                         activation_token = null;
                         break;
@@ -589,34 +575,6 @@ public class App : Adw.Application {
                 });
         } catch (Error e) {
             warning ("Кнопки в уведомлениях не будут работать: %s", e.message);
-        }
-    }
-
-    // Открыть папку с файлами в файловом менеджере и выделить их.
-    // Не умеет (нет org.freedesktop.FileManager1) — просто открыть папку.
-    private static void show_in_file_manager (string[] files, string? token) {
-        if (files.length == 0) {
-            return;
-        }
-        var uris = new string[0];
-        foreach (var file in files) {
-            uris += File.new_for_path (file).get_uri ();
-        }
-        try {
-            Bus.get_sync (BusType.SESSION).call_sync (
-                "org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
-                "org.freedesktop.FileManager1", "ShowItems",
-                new Variant.tuple ({ new Variant.strv (uris), new Variant.string (token ?? "") }),
-                null, DBusCallFlags.NONE, 5000);
-            return;
-        } catch (Error e) {
-            debug ("FileManager1.ShowItems: %s", e.message);
-        }
-        try {
-            var folder = File.new_for_path (files[0]).get_parent ();
-            AppInfo.launch_default_for_uri (folder.get_uri (), null);
-        } catch (Error e) {
-            warning ("Не удалось открыть папку: %s", e.message);
         }
     }
 
@@ -762,8 +720,70 @@ public class App : Adw.Application {
     }
 #endif
 
-    // Импорт учеников: выбрать таблицу Excel, загрузить, показать итог
+    // Перед выбором файла показываем формат, который понимает StudentsImport.
     private void import_students (MainWindow window) {
+        var guide = new Adw.AlertDialog ("Импорт учеников",
+            "Подготовьте файл Excel (.xlsx) по образцу. Загружается первый лист: каждый ученик — отдельная строка.") {
+            prefer_wide_layout = true
+        };
+        var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 12);
+        var table = new Gtk.Grid () {
+            column_spacing = 16,
+            row_spacing = 10,
+            margin_top = 12,
+            margin_bottom = 12,
+            margin_start = 12,
+            margin_end = 12
+        };
+        string[,] sample = {
+            { "ФИО", "Группа", "Карточка" },
+            { "Иванов Иван Иванович", "ИС21", "182,31128" },
+            { "Петрова Анна Сергеевна", "ИС22", "120,09886" }
+        };
+        for (int row = 0; row < sample.length[0]; row++) {
+            for (int column = 0; column < sample.length[1]; column++) {
+                var cell = new Gtk.Label (sample[row, column]) {
+                    xalign = 0,
+                    selectable = true,
+                    wrap = true,
+                    max_width_chars = column == 0 ? 24 : 12
+                };
+                if (row == 0) {
+                    cell.add_css_class ("heading");
+                }
+                table.attach (cell, column, row);
+            }
+        }
+        var scroll = new Gtk.ScrolledWindow () {
+            hscrollbar_policy = Gtk.PolicyType.AUTOMATIC,
+            vscrollbar_policy = Gtk.PolicyType.NEVER,
+            propagate_natural_width = true,
+            child = table
+        };
+        content.append (new Gtk.Frame (null) { child = scroll });
+        content.append (new Gtk.Label (
+            "Соблюдайте порядок: ФИО → группа → карточка. Строка с заголовками необязательна.\n\n"
+            + "Карточка — серия и номер через запятую в одной ячейке. Выберите текстовый формат ячеек, чтобы сохранить номер целиком, включая нули.\n\n"
+            + "Фамилию, имя и отчество можно указать в трёх отдельных столбцах перед группой. Перед ФИО допускается столбец с порядковым номером.") {
+            xalign = 0,
+            wrap = true
+        });
+        guide.extra_child = content;
+        guide.add_response ("cancel", "Отмена");
+        guide.add_response ("choose", "Выбрать файл…");
+        guide.set_response_appearance ("choose", Adw.ResponseAppearance.SUGGESTED);
+        guide.default_response = "choose";
+        guide.close_response = "cancel";
+        guide.response.connect ((response) => {
+            if (response == "choose") {
+                choose_students_file (window);
+            }
+        });
+        guide.present (window);
+    }
+
+    // Выбрать таблицу Excel, загрузить, показать итог.
+    private void choose_students_file (MainWindow window) {
         var filter = new Gtk.FileFilter () {
             name = "Таблицы Excel (.xlsx)"
         };
@@ -782,18 +802,80 @@ public class App : Adw.Application {
             } catch (Error e) {
                 return;  // окно выбора закрыли
             }
-            ImportResult result;
             try {
-                result = StudentsImport.import_file (database, file.get_path ());
+                var rows = XlsxReader.read_first_sheet (file.get_path ());
+                var conflicts = StudentsImport.find_group_conflicts (database, rows);
+                resolve_import_groups (window, rows, conflicts,
+                    new HashTable<string, string> (str_hash, str_equal), 0);
             } catch (Error e) {
                 var alert = new Adw.AlertDialog ("Ученики не загружены", e.message);
                 alert.add_response ("close", "Закрыть");
                 alert.present (window);
                 return;
             }
-            window.update_counts ();
-            show_import_result (window, result);
         });
+    }
+
+    // Решения собираем до записи: отмена любого вопроса отменяет весь импорт.
+    private void resolve_import_groups (MainWindow window, GenericArray<SheetRow> rows,
+            GenericArray<ImportGroupConflict> conflicts, HashTable<string, string> choices, int index) {
+        if (index == conflicts.length) {
+            try {
+                var result = StudentsImport.import_rows (database, rows, choices);
+                window.update_counts ();
+                show_import_result (window, result);
+            } catch (Error e) {
+                var error = new Adw.AlertDialog ("Ученики не загружены", e.message);
+                error.add_response ("close", "Закрыть");
+                error.present (window);
+            }
+            return;
+        }
+        var conflict = conflicts[index];
+        var details = new StringBuilder ();
+        for (int i = 0; i < conflict.details.length && i < 10; i++) {
+            details.append_printf ("%s\n", conflict.details[i]);
+        }
+        if (conflict.details.length > 10) {
+            details.append_printf ("Ещё записей: %d\n", conflict.details.length - 10);
+        }
+        var alert = new Adw.AlertDialog ("Уточните группу ученика",
+            @"$(conflict.full_name) указан в разных группах. Скорее всего, ученик перевёлся. Выберите его актуальную группу.\n\n"
+            + details.str + "\n"
+            + "Будут загружены только строки выбранной группы. Если её нет в файле, сохранится запись из базы.\n\n"
+            + "Если это полные тёзки, нажмите «Это разные люди».") {
+            prefer_wide_layout = true
+        };
+        var selector = new Adw.ComboRow () {
+            title = "Актуальная группа",
+            model = new Gtk.StringList (conflict.groups),
+            selected = Gtk.INVALID_LIST_POSITION
+        };
+        var list = new Gtk.ListBox () { selection_mode = Gtk.SelectionMode.NONE };
+        list.add_css_class ("boxed-list");
+        list.append (selector);
+        alert.extra_child = list;
+        alert.add_response ("cancel", "Отмена импорта");
+        alert.add_response ("separate", "Это разные люди");
+        alert.add_response ("apply", "Подтвердить группу");
+        alert.set_response_appearance ("apply", Adw.ResponseAppearance.SUGGESTED);
+        alert.set_response_enabled ("apply", false);
+        alert.default_response = "apply";
+        alert.close_response = "cancel";
+        selector.notify["selected"].connect (() => {
+            alert.set_response_enabled ("apply", selector.selected < conflict.groups.length);
+        });
+        alert.response.connect ((response) => {
+            if (response == "apply" && selector.selected < conflict.groups.length) {
+                choices[conflict.key] = conflict.groups[selector.selected];
+            } else if (response == "separate") {
+                choices[conflict.key] = "";
+            } else {
+                return;
+            }
+            resolve_import_groups (window, rows, conflicts, choices, index + 1);
+        });
+        alert.present (window);
     }
 
     private void show_import_result (MainWindow window, ImportResult result) {
@@ -827,6 +909,10 @@ public class App : Adw.Application {
     }
 
     public static int main (string[] args) {
+        // Помощник не запускает GTK, базу данных и повторную выгрузку.
+        if (args.length >= 4 && args[1] == ExportNotification.FLAG) {
+            return ExportNotification.run (args[2], args[3], args[4:args.length]);
+        }
         // Настройка системы от root (см. SystemSetup.run): без окна,
         // программа завершается сразу после настройки
         if (args.length == 2 && args[1] == SystemSetup.FLAG) {

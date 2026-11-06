@@ -138,7 +138,9 @@ void test_import () throws Error {
     // Перевели в другую группу — ученик тот же, с той же карточкой
     var rows = new GenericArray<SheetRow> ();
     rows.add (new SheetRow () { number = 1, cells = { "Ворожцова Анжелика Николаевна", "ПК22КР26", "182,31128" } });
-    result = StudentsImport.import_rows (db, rows);
+    var choices = new HashTable<string, string> (str_hash, str_equal);
+    choices[StudentsImport.name_key (student.full_name)] = "ПК22КР26";
+    result = StudentsImport.import_rows (db, rows, choices);
     assert_cmpint (result.updated, CompareOperator.EQ, 1);
     assert_cmpint ((int) db.find_student_by_card (uid (182, 31128)).id, CompareOperator.EQ, (int) student.id);
     assert_cmpstr (db.find_student_by_card (uid (182, 31128)).group_name, CompareOperator.EQ, "ПК22КР26");
@@ -150,12 +152,121 @@ void test_import () throws Error {
     DirUtils.remove (dir);
 }
 
+GenericArray<SheetRow> transfer_rows (bool same_card = false, bool reverse = false) {
+    var rows = new GenericArray<SheetRow> ();
+    var old = new SheetRow () { number = 2, cells = { "Иванов Иван Иванович", "ИС21", "1,00001" } };
+    var current = new SheetRow () { number = 3, cells = {
+        "Иванов Иван Иванович", "ИС22", same_card ? "1,00001" : "1,00002" } };
+    rows.add (reverse ? current : old);
+    rows.add (reverse ? old : current);
+    return rows;
+}
+
+HashTable<string, string> group_choice (string group) {
+    var choices = new HashTable<string, string> (str_hash, str_equal);
+    choices[StudentsImport.name_key ("Иванов Иван Иванович")] = group;
+    return choices;
+}
+
+void test_unresolved_groups () throws Error {
+    var db = new Database (":memory:");
+    var rows = transfer_rows ();
+    var conflicts = StudentsImport.find_group_conflicts (db, rows);
+    assert_cmpint (conflicts.length, CompareOperator.EQ, 1);
+    assert_cmpint (conflicts[0].groups.length, CompareOperator.EQ, 2);
+    var result = StudentsImport.import_rows (db, rows);
+    assert_cmpint (result.problems.length, CompareOperator.EQ, 2);
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 0);
+}
+
+void test_choose_group () throws Error {
+    // Результат не зависит от порядка строк и совпадения карточек.
+    for (int same = 0; same < 2; same++) {
+        for (int reverse = 0; reverse < 2; reverse++) {
+            var db = new Database (":memory:");
+            var rows = transfer_rows (same == 1, reverse == 1);
+            var choices = group_choice ("ИС22");
+            var result = StudentsImport.import_rows (db, rows, choices);
+            assert_cmpint (result.added, CompareOperator.EQ, 1);
+            assert_cmpint (result.problems.length, CompareOperator.EQ, 1);
+            var students = db.list_students ();
+            assert_cmpint (students.length, CompareOperator.EQ, 1);
+            assert_cmpstr (students[0].group_name, CompareOperator.EQ, "ИС22");
+            assert_true (students[0].card_uid == uid (1, same == 1 ? 1 : 2));
+            // Повторный импорт также не возвращает старую группу.
+            result = StudentsImport.import_rows (db, rows, choices);
+            assert_cmpint (result.unchanged, CompareOperator.EQ, 1);
+            assert_cmpint (db.list_students ().length, CompareOperator.EQ, 1);
+        }
+    }
+}
+
+void test_transfer_new_card () throws Error {
+    var db = new Database (":memory:");
+    var id = db.add_student ("Иванов Иван Иванович", "ИС21", uid (1, 1), "Сироты ССЗ", false);
+    var date = new DateTime.local (2025, 10, 1, 8, 0, 0);
+    db.record_meal (id, MealType.BREAKFAST, date);
+    var rows = new GenericArray<SheetRow> ();
+    rows.add (transfer_rows ()[1]);
+    assert_cmpint (StudentsImport.find_group_conflicts (db, rows).length, CompareOperator.EQ, 1);
+    // Без решения существующий ученик не меняется.
+    StudentsImport.import_rows (db, rows);
+    assert_cmpstr (db.find_student_by_card (uid (1, 1)).group_name, CompareOperator.EQ, "ИС21");
+    var result = StudentsImport.import_rows (db, rows, group_choice ("ИС22"));
+    assert_cmpint (result.updated, CompareOperator.EQ, 1);
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 1);
+    var student = db.find_student_by_card (uid (1, 2));
+    assert_true (student.id == id);
+    assert_cmpstr (student.group_name, CompareOperator.EQ, "ИС22");
+    assert_cmpstr (student.benefit_category, CompareOperator.EQ, "Сироты ССЗ");
+    assert_true (student.is_budget != null && student.is_budget == false);
+    assert_cmpint (db.day_records (date).length, CompareOperator.EQ, 1);
+}
+
+void test_namesakes () throws Error {
+    var db = new Database (":memory:");
+    var result = StudentsImport.import_rows (db, transfer_rows (), group_choice (""));
+    assert_cmpint (result.added, CompareOperator.EQ, 2);
+    assert_cmpint (result.problems.length, CompareOperator.EQ, 0);
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 2);
+}
+
+void test_normalized_conflicts () throws Error {
+    var db = new Database (":memory:");
+    db.add_student ("ИВАНОВ  ИВАН ИВАНОВИЧ", "ИС21", uid (1, 1));
+    var rows = new GenericArray<SheetRow> ();
+    rows.add (transfer_rows ()[1]);
+    assert_cmpint (StudentsImport.find_group_conflicts (db, rows).length, CompareOperator.EQ, 1);
+    StudentsImport.import_rows (db, rows, group_choice ("ИС22"));
+    assert_cmpint (db.list_students ().length, CompareOperator.EQ, 1);
+    assert_cmpstr (db.find_student_by_card (uid (1, 2)).group_name, CompareOperator.EQ, "ИС22");
+    // Повторы в одной группе не являются признаком перевода.
+    assert_cmpint (StudentsImport.find_group_conflicts (db, rows).length, CompareOperator.EQ, 0);
+}
+
+void test_keep_database_group () throws Error {
+    var db = new Database (":memory:");
+    db.add_student ("Иванов Иван Иванович", "ИС21", uid (1, 1));
+    var rows = new GenericArray<SheetRow> ();
+    rows.add (transfer_rows ()[1]);
+    var result = StudentsImport.import_rows (db, rows, group_choice ("ИС21"));
+    assert_cmpint (result.problems.length, CompareOperator.EQ, 1);
+    assert_true (db.find_student_by_card (uid (1, 2)) == null);
+    assert_cmpstr (db.find_student_by_card (uid (1, 1)).group_name, CompareOperator.EQ, "ИС21");
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/students-import/parse-card", test_parse_card);
     Test.add_func ("/students-import/parse-row", test_parse_row);
     Test.add_func ("/students-import/read-xlsx", () => wrap (test_read_xlsx));
     Test.add_func ("/students-import/import", () => wrap (test_import));
+    Test.add_func ("/students-import/unresolved-groups", () => wrap (test_unresolved_groups));
+    Test.add_func ("/students-import/choose-group", () => wrap (test_choose_group));
+    Test.add_func ("/students-import/transfer-new-card", () => wrap (test_transfer_new_card));
+    Test.add_func ("/students-import/namesakes", () => wrap (test_namesakes));
+    Test.add_func ("/students-import/normalized-conflicts", () => wrap (test_normalized_conflicts));
+    Test.add_func ("/students-import/keep-database-group", () => wrap (test_keep_database_group));
     return Test.run ();
 }
 
