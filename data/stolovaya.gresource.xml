@@ -4,5 +4,6 @@
 <gresources>
   <gresource prefix="/org/gurov/Stolovaya">
     <file alias="icons/scalable/apps/org.gurov.Stolovaya.svg">org.gurov.Stolovaya.svg</file>
+    <file>style.css</file>
   </gresource>
 </gresources>
