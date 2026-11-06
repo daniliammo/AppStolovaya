@@ -2,6 +2,12 @@
 // Adw.Application сам следует системной теме (светлой или тёмной).
 
 public class App : Adw.Application {
+    private enum ExportOutcome {
+        UNCHANGED,
+        SAVED,
+        FAILED
+    }
+
     private Database? database;
     private Settings? settings;
     private CardReader reader = new CardReader ();
@@ -11,6 +17,8 @@ public class App : Adw.Application {
     private Adw.ApplicationWindow? error_window = null;
     private Adw.AlertDialog? error_dialog = null;
     private ExcelExporter? exporter;
+    // query-end может выгрузить данные до shutdown: второй итог не нужен.
+    private bool exit_export_reported = false;
 #if DEBUG
     private bool demo_data = true;
 #endif
@@ -171,12 +179,16 @@ public class App : Adw.Application {
     protected override void shutdown () {
         if (exporter != null) {
             // Нажатие на уведомление после выхода обработает отдельный процесс
-            run_export (0, false);
+            var outcome = run_export (0, false);
             // Нового нечего было записать, а уведомление о прошлой выгрузке
             // ещё на экране — иначе оно пропадёт вместе с программой
-            if (export_notification != 0) {
-                replace_export_notification (export_title (exported_files.length),
-                    string.joinv ("\n", exported_files), exported_files);
+            if (outcome == ExportOutcome.UNCHANGED) {
+                if (export_notification != 0) {
+                    replace_export_notification (export_title (exported_files.length),
+                        string.joinv ("\n", exported_files), exported_files);
+                } else if (!exit_export_reported) {
+                    send_detached_notification ("Изменений нет", "Новых данных для записи в Excel нет.");
+                }
             }
         }
         base.shutdown ();
@@ -190,7 +202,7 @@ public class App : Adw.Application {
     // и сообщить об этом. Ничего не изменилось — ничего не пишем и не сообщаем.
     // interactive — кнопка «Открыть папку» в уведомлении и окно, если файл
     // открыт в другой программе; false — при выходе программы или из сеанса.
-    private void run_export (int with_school_year = 0, bool interactive = true) {
+    private ExportOutcome run_export (int with_school_year = 0, bool interactive = true) {
         GenericArray<string> files;
         try {
             files = exporter.export_changed (with_school_year);
@@ -200,11 +212,12 @@ public class App : Adw.Application {
                 send_desktop_notification ("Не удалось сохранить Excel-файл", e.message);
             } else {
                 send_detached_notification ("Не удалось сохранить Excel-файл", e.message);
+                exit_export_reported = true;
             }
-            return;
+            return ExportOutcome.FAILED;
         }
         if (files.length == 0) {
-            return;
+            return ExportOutcome.UNCHANGED;
         }
 
         var names = new string[0];
@@ -214,12 +227,14 @@ public class App : Adw.Application {
         var body = string.joinv ("\n", names);
         if (!interactive) {
             replace_export_notification (export_title (files.length), body, names);
-            return;
+            exit_export_reported = true;
+            return ExportOutcome.SAVED;
         }
         exported_files = names;
         export_notification = send_desktop_notification (export_title (files.length), body,
             "x-office-spreadsheet", export_notification, { "default", "Открыть папку", "open-folder", "Открыть папку" });
         warn_if_open (files);
+        return ExportOutcome.SAVED;
     }
 
     // Уведомление переживёт выход программы, а помощник обработает нажатие.
